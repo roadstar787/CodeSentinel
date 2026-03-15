@@ -1,10 +1,9 @@
 import os
+import sys
 import asyncio
 import psutil
-import datetime
-import json
+import httpx
 from pathlib import Path
-from collections import Counter
 from nicegui import ui, run, app
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -13,282 +12,229 @@ from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader
 
-# --- RAG バックエンド ---
+# --- システム設定 ---
+APP_NAME = "Code Sentinel"
+REVISION = "v1.3.3"
+
 class RAGBackend:
     def __init__(self):
         self.target_dir = r"E:\sample\json"
-        self.lm_studio_url = "http://localhost:1234/v1"
         self.db_path = "faiss_index_code"
+        self.lm_studio_url = "http://localhost:1234/v1"
         self.vectorstore = None
         self.embeddings = OpenAIEmbeddings(
             base_url=self.lm_studio_url,
             api_key="lm-studio",
             check_embedding_ctx_length=False
         )
-        self.stats = {
-            "total_chunks": 0,
-            "last_rebuild": "Never",
-            "is_rebuilding": False,
-            "revision": "v1.3.0"
-        }
-        self.config_file = "db_config.json"
-        self.load_config() # 起動時に保存されたパスを読み込む
+        self.stats = {"total_chunks": 0, "is_rebuilding": False, "lm_connected": False, "model": "N/A"}
 
-    def load_config(self):
-        """保存されたパス情報を読み込む"""
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    self.target_dir = config.get("target_dir", self.target_dir)
-            except: pass
-
-    def save_config(self):
-        """現在のパス情報を保存する"""
+    async def check_lm_studio(self):
         try:
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump({"target_dir": self.target_dir}, f, ensure_ascii=False, indent=2)
-        except: pass
+            async with httpx.AsyncClient() as client:
+                # タイムアウトを少し伸ばす
+                resp = await client.get(f"{self.lm_studio_url}/models", timeout=30.0)
+                if resp.status_code == 200:
+                    self.stats["lm_connected"] = True
+                    data = resp.json()
+                    if data.get('data'):
+                        self.stats["model"] = data['data'][0]['id']
+                    return True
+                else:
+                    print(f"LM Studio returned status: {resp.status_code}")
+        except Exception as e:
+            # 接続エラーの理由をターミナル（黒い画面）に表示
+            print(f"Connection Error Detail: {e}")
 
+        self.stats["lm_connected"] = False
+        return False
     def load_db(self):
-        # if os.path.exists(self.db_path):
-        #     try:
-        #         self.vectorstore = FAISS.load_local(
-        #             self.db_path, self.embeddings, allow_dangerous_deserialization=True
-        #         )
-        #         self.stats["total_chunks"] = self.vectorstore.index.ntotal
-        #         idx_file = Path(self.db_path) / "index.faiss"
-        #         if idx_file.exists():
-        #             mtime = datetime.datetime.fromtimestamp(idx_file.stat().st_mtime)
-        #             self.stats["last_rebuild"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
-        #         return True, "DBを読み込みました。"
-        #     except Exception as e:
-        #         return False, f"読み込み失敗: {str(e)}"
-        # return False, "DBが見つかりません。"
         if os.path.exists(self.db_path):
             try:
-                # パスの一致チェック (簡易版)
-                if os.path.exists(self.config_file):
-                    with open(self.config_file, "r", encoding="utf-8") as f:
-                        saved_path = json.load(f).get("target_dir")
-                    if saved_path != self.target_dir:
-                        return False, "警告: 設定パスとDBの構築パスが異なります。再構築を推奨します。"
+                self.vectorstore = FAISS.load_local(self.db_path, self.embeddings, allow_dangerous_deserialization=True)
+                self.stats["total_chunks"] = self.vectorstore.index.ntotal
+                return True
+            except: return False
+        return False
 
-                self.vectorstore = FAISS.load_local(
-                    self.db_path, self.embeddings, allow_dangerous_deserialization=True
-                )
-                # ... 既存の読み込みコード ...
-                return True, "DBを読み込みました。"
-            except Exception as e:
-                return False, f"読み込み失敗: {str(e)}"
-        return False, "DBが見つかりません。"
-
-    def get_file_content(self, rel_path):
-        full_path = Path(self.target_dir) / rel_path
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            ext = full_path.suffix.lstrip('.')
-            return f"```{ext}\n{content}\n```"
-        except Exception as e:
-            return f"Error loading file: {str(e)}"
-
-    def rebuild_db(self, progress_callback=None):
+# --- 抜けていたメソッドを修正 ---
+    def get_retriever(self):
+        if self.vectorstore:
+            return self.vectorstore.as_retriever(search_kwargs={"k": 5})
+        return None
+    
+    def rebuild_db(self):
         self.stats["is_rebuilding"] = True
         docs = []
-        code_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000, chunk_overlap=100,
-            separators=["\nclass ", "\ndef ", "\n\n", "\n", " "]
-        )
-        extensions = {".hpp", ".h", ".cpp", ".py", ".json", ".js", ".ts", ".cs", ".java"}
+        extensions = {".hpp", ".h", ".cpp", ".py", ".json", ".cs"}
         try:
-            root_path = Path(self.target_dir)
-            files = [p for p in root_path.rglob('*') if p.suffix in extensions
-                     and not any(x in p.parts for x in {'.venv', '.git', '__pycache__', 'node_modules'})]
-
-            for i, p in enumerate(files):
-                if progress_callback: progress_callback(f"Scanning: {i+1}/{len(files)}")
+            path_obj = Path(self.target_dir)
+            files = [p for p in path_obj.rglob('*') if p.suffix in extensions and ".venv" not in p.parts]
+            for p in files:
                 try:
                     loader = TextLoader(str(p), encoding="utf-8")
-                    raw_docs = loader.load()
-                    for d in raw_docs: d.metadata["source"] = str(p.relative_to(root_path))
-                    docs.extend(code_splitter.split_documents(raw_docs))
+                    raw = loader.load()
+                    for d in raw: d.metadata["source"] = str(p.relative_to(self.target_dir))
+                    docs.extend(RecursiveCharacterTextSplitter(chunk_size=1000).split_documents(raw))
                 except: continue
-
             self.vectorstore = FAISS.from_documents(docs, self.embeddings)
             self.vectorstore.save_local(self.db_path)
             self.stats["total_chunks"] = len(docs)
-            self.stats["is_rebuilding"] = False
-            # ... 既存の再構築ロジック ...
-            try:
-                # (インデックス作成完了直後に実行)
-                self.vectorstore.save_local(self.db_path)
-                self.save_config() # ★ここで構築時のパスをファイルに保存
-                # ...
-                return True, "再構築完了"
-            except Exception as e:
-                self.stats["is_rebuilding"] = False
-                return False, str(e)
-        except Exception as e:
-            self.stats["is_rebuilding"] = False
-            return False, str(e)
+            return True, "SUCCESS"
+        finally: self.stats["is_rebuilding"] = False
 
-    def get_retriever(self):
-        return self.vectorstore.as_retriever(search_kwargs={"k": 6}) if self.vectorstore else None
-
-# --- UI Global Configuration ---
 backend = RAGBackend()
 
 @ui.page('/')
 async def main_page():
+    backend.target_dir = app.storage.user.get('target_dir', backend.target_dir)
+
     ui.add_head_html('''
         <style>
-            .status-item { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 12px; }
-            .status-label { font-size: 10px; color: #94a3b8; font-weight: 800; }
-            .status-value { font-size: 12px; color: #f1f5f9; text-align: right; font-family: monospace; }
-            @keyframes pulse-sync { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-            .rebuild-active { animation: pulse-sync 1.5s infinite !important; pointer-events: none; }
-            .rebuild-active-btn { background: rgba(251, 191, 36, 0.2) !important; border: 1px solid #fbbf24 !important; }
+            .hit-file { color: #fbbf24 !important; font-weight: bold; background: #1e293b; border-radius: 4px; padding: 0 4px; }
+            .rebuild-active { animation: pulse 1.5s infinite; color: #fbbf24 !important; }
+            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         </style>
     ''')
 
-    state = {'processing': False, 'hit_counts': Counter()}
+    # --- プレビューダイアログ ---
+    with ui.dialog() as preview_dialog, ui.card().classes('w-[80vw] max-w-4xl h-[80vh]'):
+        preview_title = ui.label('').classes('text-sm font-bold mb-2')
+        with ui.scroll_area().classes('w-full flex-grow border p-4 bg-[#0d1117]'):
+            preview_code = ui.markdown('').classes('text-xs text-slate-300')
+        ui.button('CLOSE', on_click=preview_dialog.close).props('flat').classes('ml-auto')
 
-    # --- Header (ヘッダーを先に定義してトグルボタンを有効化) ---
-    with ui.header().classes('bg-white text-slate-800 p-4 border-b flex justify-between shadow-sm'):
-        with ui.row().classes('items-center gap-3'):
-            # 後で定義する drawer をトグルさせる
-            ui.button(on_click=lambda: drawer.toggle(), icon='menu').props('flat round').classes('text-slate-400')
-            ui.label('CodeSentinel').classes('text-xl font-black text-indigo-600')
+    def open_preview(file_path):
+        if not file_path: return
+        full_path = Path(backend.target_dir) / file_path
+        if not full_path.is_file(): return
+        try:
+            content = full_path.read_text(encoding='utf-8')
+            preview_title.set_text(f"PREVIEW: {file_path}")
+            # 言語指定付きでMarkdownセット
+            ext = full_path.suffix[1:] or 'text'
+            preview_code.set_content(f"```{ext}\n{content}\n```")
+            preview_dialog.open()
+        except Exception as e:
+            ui.notify(f"Read Error: {e}", color='red')
 
-        # LM Studio リンク表示 (復活)
-        with ui.row().classes('items-center gap-2'):
-            ui.icon('circle', size='10px').classes('text-green-500 animate-pulse')
-            ui.label('LM Studio Linked').classes('text-[11px] font-bold text-slate-400')
+    # --- サイドバー (復活) ---
+    with ui.left_drawer(fixed=True).classes('p-0 bg-[#0a0f18]') as drawer:
+        with ui.tabs().classes('w-full text-slate-500') as tabs:
+            tab_exp = ui.tab('EXP', icon='account_tree')
+            tab_set = ui.tab('SET', icon='settings')
+            tab_sts = ui.tab('STS', icon='hub')
 
-    # --- Sidebar Drawer ---
-    with ui.left_drawer(value=True).classes('bg-slate-950 text-white p-0 shadow-2xl') as drawer:
-        with ui.tabs().classes('w-full bg-slate-900 text-slate-400') as tabs:
-            tab_explorer = ui.tab('Explorer', icon='folder')
-            tab_settings = ui.tab('Settings', icon='settings')
-            tab_status = ui.tab('Status', icon='analytics')
+        with ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4'):
+            with ui.tab_panel(tab_exp):
+                ui.label('EXPLORER').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
+                tree_container = ui.column().classes('w-full gap-0')
 
-        with ui.tab_panels(tabs, value=tab_explorer).classes('w-full flex-grow bg-transparent p-0'):
+            with ui.tab_panel(tab_set):
+                ui.label('CONFIG').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
+                path_input = ui.input('Path', value=backend.target_dir).props('dark dense outlined').classes('w-full mb-4')
+                ui.button('SAVE PATH', on_click=lambda: save_settings(path_input.value)).props('flat border').classes('w-full text-xs mb-4')
+                rebuild_btn = ui.button('REBUILD', on_click=lambda: rebuild_task()).props('flat icon=refresh').classes('w-full border border-slate-800 text-xs')
 
-            # Explorer Tab
-            with ui.tab_panel(tab_explorer).classes('p-0'):
-                tree_container = ui.column().classes('w-full gap-0 p-2')
+            with ui.tab_panel(tab_sts):
+                ui.label('SYSTEM').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
+                with ui.row().classes('items-center gap-2 mb-2'):
+                    lm_indicator = ui.icon('circle', color='grey').classes('text-[12px]')
+                    lm_status_text = ui.label('Checking...').classes('text-[11px] font-mono text-slate-400')
+                lm_model_label = ui.label('Model: N/A').classes('text-[10px] font-mono text-slate-500 mb-4 truncate w-full')
+                cpu_label = ui.label('CPU: 0%').classes('text-[11px] font-mono text-slate-400')
+                ram_label = ui.label('RAM: 0%').classes('text-[11px] font-mono text-slate-400')
 
-            # Settings Tab
-            with ui.tab_panel(tab_settings).classes('p-6'):
-                # path_input = ui.input('Path', value=backend.target_dir,
-                #                       on_change=lambda e: (setattr(backend, 'target_dir', e.value), refresh_tree()))\
-                #                       .props('dark outlined dense').classes('mb-6')
-                path_input = ui.input('Path', value=backend.target_dir,
-                                      on_change=lambda e: update_path_logic(e.value))\
-                                      .props('dark outlined dense').classes('mb-6')
+        ui.button('SHUTDOWN', on_click=app.shutdown).props('flat icon=power_settings_new color=red-4').classes('w-full mt-auto mb-4 px-4')
 
-                rebuild_btn = ui.button('インデックス再構築', on_click=lambda: rebuild_db_task())\
-                                .props('flat icon=bolt color=amber').classes('w-full border border-amber-900/30 bg-amber-950/20 py-3')
-                ui.button('DB再読み込み', on_click=lambda: load_db_task()).props('flat icon=refresh').classes('w-full border border-slate-800 mt-4')
-                ui.button('終了', on_click=lambda: app.shutdown()).props('flat icon=power color=red').classes('w-full border border-red-900/30 mt-8')
+    # --- ヘッダー ---
+    with ui.header().classes('bg-white text-slate-900 p-4 border-b flex justify-between shadow-none'):
+        with ui.row().classes('items-center gap-4'):
+            ui.button(icon='menu', on_click=drawer.toggle).props('flat round color=slate-900')
+            ui.label(APP_NAME).classes('text-lg font-black uppercase')
+        idx_label = ui.label(f'IDX: {backend.stats["total_chunks"]}').classes('text-[10px] font-mono text-slate-500')
 
+    chat_results = ui.column().classes('w-full max-w-4xl mx-auto p-8 pb-40 gap-4')
 
-            # Status Tab (表示項目を復活 & 右寄せ対応)
-            with ui.tab_panel(tab_status).classes('p-6'):
-                with ui.element('div').classes('status-item'):
-                    ui.label('Vector DB').classes('status-label')
-                    status_chip = ui.label('OFFLINE').classes('px-2 py-0.5 rounded text-[10px] font-bold')
-                with ui.element('div').classes('status-item'):
-                    ui.label('Chunks').classes('status-label')
-                    chunk_count_label = ui.label('0').classes('status-value')
-                with ui.element('div').classes('status-item'):
-                    ui.label('CPU').classes('status-label')
-                    cpu_label = ui.label('0%').classes('status-value')
-
-    # --- Dialog ---
-    with ui.dialog().props('full-width') as preview_dialog, ui.card().classes('w-full max-h-[90vh] p-0'):
-        with ui.row().classes('w-full items-center justify-between p-4 border-b'):
-            preview_title = ui.label('').classes('font-bold')
-            ui.button(icon='close', on_click=preview_dialog.close).props('flat round')
-        with ui.scroll_area().classes('flex-grow p-6 bg-slate-900'):
-            preview_content = ui.markdown('').classes('text-slate-100 font-mono')
-
-
-    def update_path_logic(new_path):
-        backend.target_dir = new_path
-        # パスが変わったらDBの整合性を再確認
-        success, msg = backend.load_db()
-        if not success and "警告" in msg:
-            ui.notify(msg, type='warning', duration=5)
-        refresh_tree()
-
-    # --- Functions ---
-    def refresh_tree():
+    # --- ヘルパー ---
+    def refresh_explorer(highlight_files=None):
+        highlight_files = highlight_files or []
         tree_container.clear()
-        root = Path(backend.target_dir)
-        if not root.exists(): return
-        def render(path, level=0):
-            rel = str(path.relative_to(root))
-            if any(x in rel for x in {'.venv', '.git', '__pycache__'}): return
-            hits = state['hit_counts'].get(rel, 0)
-            with tree_container:
-                # no-wrap と truncate を追加して一行に固定
-                row = ui.row().classes('w-full items-center no-wrap py-1 px-4 cursor-pointer hover:bg-slate-800 transition-all').style(f'padding-left: {level*12+16}px; {"background:rgba(99,102,241,0.2)" if hits > 0 else ""}')
-                if not path.is_dir():
-                    row.on('click', lambda: (preview_title.set_text(rel), preview_content.set_content(backend.get_file_content(rel)), preview_dialog.open()))
-                with row:
-                    ui.icon('folder' if path.is_dir() else 'description', size='16px').classes('text-slate-500 mr-2 flex-shrink-0')
-                    ui.label(path.name).classes('text-xs text-slate-300 truncate flex-grow')
+        def build_nodes(path: Path, relative_to: Path):
+            rel = str(path.relative_to(relative_to)) if path != relative_to else ""
+            node = {"id": rel if path.is_file() else None, "label": path.name, "class": "hit-file" if rel in highlight_files else ""}
             if path.is_dir():
-                for c in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())): render(c, level+1)
-        render(root)
+                node["children"] = [build_nodes(p, relative_to) for p in sorted(path.iterdir())
+                                    if not p.name.startswith('.') and (p.is_dir() or p.suffix in {".py", ".cs", ".cpp", ".h", ".json"})]
+                node["icon"] = "folder"
+            else: node["icon"] = "description"
+            return node
+        try:
+            root = Path(backend.target_dir)
+            tree_data = [build_nodes(root, root)]
+            with tree_container:
+                t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value)).props('dark dense')
+                t.add_slot('default-header', '<div :class="props.node.class">{{ props.node.label }}</div>')
+        except: pass
 
-    def sync_ui_state():
-        """タブ切り替え時に再構築中の表示を同期"""
-        if backend.stats["is_rebuilding"]:
-            rebuild_btn.classes(add='rebuild-active rebuild-active-btn')
-            chunk_count_label.classes(add='rebuild-active')
-            rebuild_btn.set_text('再構築中...'); rebuild_btn.disable()
-        else:
-            rebuild_btn.classes(remove='rebuild-active rebuild-active-btn')
-            chunk_count_label.classes(remove='rebuild-active')
-            rebuild_btn.set_text('インデックス再構築'); rebuild_btn.enable()
-
-    tabs.on('update:modelValue', sync_ui_state)
-
-    async def rebuild_db_task():
-        if backend.stats["is_rebuilding"]: return
-        backend.stats["is_rebuilding"] = True
-        sync_ui_state()
-        success, msg = await run.io_bound(backend.rebuild_db, progress_callback=lambda t: chunk_count_label.set_text(t))
-        backend.stats["is_rebuilding"] = False
-        sync_ui_state()
-        load_db_task()
-
-    def load_db_task():
-        success, msg = backend.load_db()
-        status_chip.set_text('ONLINE' if success else 'OFFLINE')
-        status_chip.classes(replace='bg-green-950/20 text-green-400' if success else 'bg-red-950/20 text-red-400')
-        chunk_count_label.set_text(str(backend.stats["total_chunks"]))
-        if success: refresh_tree()
-
-    # Chat UI (省略されていた部分を確実に動作する形で復元)
-    chat_results = ui.column().classes('w-full max-w-4xl mx-auto p-6 pb-48 gap-8')
-    with ui.footer().classes('bg-transparent'):
-        with ui.column().classes('w-full max-w-4xl mx-auto p-4'):
-            with ui.row().classes('w-full bg-white p-3 border rounded-2xl shadow-2xl items-end gap-2'):
-                input_field = ui.textarea(placeholder='質問を入力...').classes('flex-grow px-3').props('borderless autogrow')
-                ui.button(icon='send', on_click=lambda: handle_query()).props('round color=indigo shadow-lg')
+    async def update_status_loop():
+        while True:
+            cpu_label.set_text(f"CPU: {psutil.cpu_percent()}%")
+            ram_label.set_text(f"RAM: {psutil.virtual_memory().percent}%")
+            connected = await backend.check_lm_studio()
+            lm_indicator.props(f'color={"green" if connected else "red"}')
+            lm_status_text.set_text(f'LM Studio: {"OK" if connected else "ERR"}')
+            lm_model_label.set_text(f'Model: {backend.stats["model"]}')
+            await asyncio.sleep(3)
 
     async def handle_query():
-        # チャットロジック
-        if state['processing'] or not input_field.value.strip(): return
-        query = input_field.value.strip(); input_field.value = ''; state['processing'] = True
-        # ここにLLM呼び出しと表示処理を記述（以前の正常版と同じ）
-        state['processing'] = False
+        query = input_field.value.strip()
+        if not query: return
+        input_field.value = ''
+        with chat_results:
+            ui.label(f"Q: {query}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
+            md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
+            source_row = ui.row().classes('gap-2 mt-1')
+        try:
+            retriever = backend.get_retriever()
+            docs = await run.io_bound(retriever.invoke, query)
+            hits = list(set([d.metadata['source'] for d in docs]))
+            refresh_explorer(highlight_files=hits)
+            with source_row:
+                for p in hits:
+                    ui.button(p, on_click=lambda e, path=p: open_preview(path)).props('outline dense size=xs').classes('text-[10px] text-slate-500')
+            context = "\n".join([f"FILE: {d.metadata['source']}\n{d.page_content}" for d in docs])
+            llm = ChatOpenAI(base_url=backend.lm_studio_url, api_key="lm-studio", streaming=True)
+            chain = ChatPromptTemplate.from_template("Context:\n{c}\n\nQ: {i}") | llm | StrOutputParser()
+            full = ""
+            async for chunk in chain.astream({"c": context, "i": query}):
+                full += chunk
+                md.set_content(full)
+                ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
+        # except: md.set_content("Connection Error.")
+        except Exception as e:
+            # 接続エラーの理由をターミナル（黒い画面）に表示
+            print(f"Connection Error Detail: {e}")
 
-    ui.timer(2.0, lambda: cpu_label.set_text(f"{psutil.cpu_percent()}%"))
-    ui.timer(0.1, load_db_task, once=True)
+    with ui.footer().classes('bg-transparent'):
+        with ui.row().classes('w-full max-w-4xl mx-auto p-4 bg-white border border-slate-300 items-end gap-2 shadow-lg rounded-t-xl'):
+            input_field = ui.textarea(placeholder='Ask...').classes('flex-grow text-sm').props('borderless autogrow')
+            ui.button(on_click=handle_query).props('flat icon=send color=indigo-600')
 
-ui.run(title='CodeSentinel', port=8080, reload=False)
+    def save_settings(v):
+        app.storage.user['target_dir'] = v
+        backend.target_dir = v
+        refresh_explorer()
+
+    async def rebuild_task():
+        rebuild_btn.classes(add='rebuild-active')
+        await run.io_bound(backend.rebuild_db)
+        rebuild_btn.classes(remove='rebuild-active')
+        idx_label.set_text(f'IDX: {backend.stats["total_chunks"]}')
+        refresh_explorer()
+
+    backend.load_db()
+    refresh_explorer()
+    asyncio.create_task(update_status_loop())
+
+ui.run(title=APP_NAME, storage_secret='sentinel_secret_key')
