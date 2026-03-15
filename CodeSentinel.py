@@ -1,150 +1,216 @@
-import os
-import sys
-import asyncio
-import psutil
-import httpx
-from pathlib import Path
-from nicegui import ui, run, app
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import TextLoader
+# 必要なライブラリをインポートします。
+import os         # オペレーティングシステム機能
+import sys        # システム固有のパラメータと機能
+import asyncio    # 非同期プログラミング
+import psutil     # システム監視（CPU, RAMなど）
+import httpx      # 非同期HTTPクライアント
+from pathlib import Path  # オブジェクト指向パス操作
+from nicegui import ui, run, app  # NiceGUIフレームワーク
+from langchain_core.prompts import ChatPromptTemplate  # LangChainプロンプトテンプレート
+from langchain_core.output_parsers import StrOutputParser  # LangChain出力パーサー
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings  # OpenAIチャットモデルと埋め込み（LM Studio互換）
+from langchain_community.vectorstores import FAISS  # FAISSベクトルストア
+from langchain_text_splitters import RecursiveCharacterTextSplitter  # テキスト分割
+from langchain_community.document_loaders import TextLoader  # テキストファイルローダー
 
 # --- システム設定 ---
+# アプリケーションの名前
 APP_NAME = "Code Sentinel"
+# アプリケーションのリビジョン（バージョン）
 REVISION = "v1.3.3"
 
+# RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
+    # クラスの初期化
     def __init__(self):
+        # ドキュメントの検索対象ディレクトリ
         self.target_dir = r"E:\sample\json"
+        # FAISSインデックスの保存パス
         self.db_path = "faiss_index_code"
+        # LM StudioのAPIエンドポイントURL
         self.lm_studio_url = "http://localhost:1234/v1"
+        # ベクトルストアのインスタンス
         self.vectorstore = None
+        # テキスト埋め込みモデルの設定
         self.embeddings = OpenAIEmbeddings(
-            base_url=self.lm_studio_url,
-            api_key="lm-studio",
-            check_embedding_ctx_length=False
+            base_url=self.lm_studio_url,  # LM StudioのベースURL
+            api_key="lm-studio",  # LM Studio用のダミーAPIキー
+            check_embedding_ctx_length=False  # 埋め込みコンテキスト長のチェックを無効化
         )
+        # RAGバックエンドの統計情報
         self.stats = {"total_chunks": 0, "is_rebuilding": False, "lm_connected": False, "model": "N/A"}
 
+    # LM Studioへの接続を確認し、モデル情報を取得する非同期メソッド
     async def check_lm_studio(self):
         try:
             async with httpx.AsyncClient() as client:
                 # タイムアウトを少し伸ばす
                 resp = await client.get(f"{self.lm_studio_url}/models", timeout=30.0)
                 if resp.status_code == 200:
+                    # 接続成功
                     self.stats["lm_connected"] = True
                     data = resp.json()
                     if data.get('data'):
-                        self.stats["model"] = data['data'][0]['id']
+                        self.stats["model"] = data['data'][0]['id']  # モデルIDを取得
                     return True
                 else:
+                    # LM Studioがエラーを返した場合
                     print(f"LM Studio returned status: {resp.status_code}")
         except Exception as e:
             # 接続エラーの理由をターミナル（黒い画面）に表示
             print(f"Connection Error Detail: {e}")
 
+        # 接続失敗
         self.stats["lm_connected"] = False
         return False
+    
+    # FAISSベクトルストアをロードするメソッド
     def load_db(self):
         if os.path.exists(self.db_path):
             try:
+                # ローカルからベクトルストアをロード
                 self.vectorstore = FAISS.load_local(self.db_path, self.embeddings, allow_dangerous_deserialization=True)
-                self.stats["total_chunks"] = self.vectorstore.index.ntotal
+                self.stats["total_chunks"] = self.vectorstore.index.ntotal  # チャンク総数を更新
                 return True
-            except: return False
+            except: 
+                # ロード失敗
+                return False
         return False
 
-# --- 抜けていたメソッドを修正 ---
+    # --- 抜けていたメソッドを修正 ---
+    # ドキュメントリトリーバーを取得するメソッド
     def get_retriever(self):
         if self.vectorstore:
-            return self.vectorstore.as_retriever(search_kwargs={"k": 5})
+            return self.vectorstore.as_retriever(search_kwargs={"k": 5})  # 上位5件を検索
         return None
     
+    # ベクトルストアを再構築するメソッド
     def rebuild_db(self):
-        self.stats["is_rebuilding"] = True
+        self.stats["is_rebuilding"] = True  # 再構築中フラグを立てる
         docs = []
+        # 対象とするファイル拡張子
         extensions = {".hpp", ".h", ".cpp", ".py", ".json", ".cs"}
         try:
             path_obj = Path(self.target_dir)
+            # 対象ディレクトリ内のファイルを再帰的に検索し、指定された拡張子を持つファイルのみを抽出
             files = [p for p in path_obj.rglob('*') if p.suffix in extensions and ".venv" not in p.parts]
             for p in files:
                 try:
+                    # テキストローダーでファイルを読み込み
                     loader = TextLoader(str(p), encoding="utf-8")
                     raw = loader.load()
+                    # メタデータに相対パスを追加
                     for d in raw: d.metadata["source"] = str(p.relative_to(self.target_dir))
+                    # テキストをチャンクに分割し、ドキュメントリストに追加
                     docs.extend(RecursiveCharacterTextSplitter(chunk_size=1000).split_documents(raw))
-                except: continue
+                except: 
+                    # ファイル読み込みエラーはスキップ
+                    continue
+            # FAISSベクトルストアをドキュメントから構築
             self.vectorstore = FAISS.from_documents(docs, self.embeddings)
+            # ベクトルストアをローカルに保存
             self.vectorstore.save_local(self.db_path)
-            self.stats["total_chunks"] = len(docs)
+            self.stats["total_chunks"] = len(docs)  # チャンク総数を更新
             return True, "SUCCESS"
-        finally: self.stats["is_rebuilding"] = False
+        finally: 
+            self.stats["is_rebuilding"] = False  # 再構築完了後フラグを下ろす
 
 backend = RAGBackend()
 
+# メインページを定義します。NiceGUIのルート ('/') に関連付けられます。
 @ui.page('/')
 async def main_page():
+    # ユーザー設定からターゲットディレクトリをロード。設定がなければRAGBackendのデフォルトを使用。
     backend.target_dir = app.storage.user.get('target_dir', backend.target_dir)
 
+    # カスタムCSSスタイルをページのheadに追加します。
     ui.add_head_html('''
         <style>
+            /* 検索結果でヒットしたファイルのスタイル */
             .hit-file { color: #fbbf24 !important; font-weight: bold; background: #1e293b; border-radius: 4px; padding: 0 4px; }
+            /* 再構築ボタンのアニメーション */
             .rebuild-active { animation: pulse 1.5s infinite; color: #fbbf24 !important; }
+            /* pulseアニメーションのキーフレーム定義 */
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         </style>
     ''')
 
     # --- プレビューダイアログ ---
-    with ui.dialog() as preview_dialog, ui.card().classes('w-[80vw] max-w-4xl h-[80vh]'):
+    # ファイルの内容を表示するためのダイアログ
+    with ui.dialog() as preview_dialog, ui.card().classes('w-[80vw] max-w-4xl h-[80vh]') as card:
+        # プレビューダイアログのタイトル
         preview_title = ui.label('').classes('text-sm font-bold mb-2')
+        # プレビューするコードを表示するスクロール可能なエリア
         with ui.scroll_area().classes('w-full flex-grow border p-4 bg-[#0d1117]'):
+            # コードコンテンツを表示するためのMarkdown要素
             preview_code = ui.markdown('').classes('text-xs text-slate-300')
+        # ダイアログを閉じるボタン
         ui.button('CLOSE', on_click=preview_dialog.close).props('flat').classes('ml-auto')
 
+    # ファイルプレビューを開く関数
     def open_preview(file_path):
+        # ファイルパスが指定されていなければ何もしない
         if not file_path: return
+        # ターゲットディレクトリとファイルパスを結合してフルパスを作成
         full_path = Path(backend.target_dir) / file_path
+        # フルパスがファイルでなければ何もしない
         if not full_path.is_file(): return
         try:
+            # ファイルの内容をUTF-8で読み込み
             content = full_path.read_text(encoding='utf-8')
+            # プレビュータイトルを設定
             preview_title.set_text(f"PREVIEW: {file_path}")
-            # 言語指定付きでMarkdownセット
+            # 言語指定付きでMarkdownセット (ファイル拡張子に基づいてシンタックスハイライト)
             ext = full_path.suffix[1:] or 'text'
             preview_code.set_content(f"```{ext}\n{content}\n```")
+            # プレビューダイアログを開く
             preview_dialog.open()
         except Exception as e:
+            # ファイル読み込みエラーを通知
             ui.notify(f"Read Error: {e}", color='red')
 
     # --- サイドバー (復活) ---
+    # アプリケーションのサイドバー（左ドロワー）
     with ui.left_drawer(fixed=True).classes('p-0 bg-[#0a0f18]') as drawer:
+        # サイドバー内のタブナビゲーション
         with ui.tabs().classes('w-full text-slate-500') as tabs:
-            tab_exp = ui.tab('EXP', icon='account_tree')
-            tab_set = ui.tab('SET', icon='settings')
-            tab_sts = ui.tab('STS', icon='hub')
+            tab_exp = ui.tab('EXP', icon='account_tree')  # エクスプローラータブ
+            tab_set = ui.tab('SET', icon='settings')  # 設定タブ
+            tab_sts = ui.tab('STS', icon='hub')  # ステータスタブ
 
+        # タブの内容パネル
         with ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4'):
+            # エクスプローラータブの内容
             with ui.tab_panel(tab_exp):
                 ui.label('EXPLORER').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
+                # ファイルツリーを表示するコンテナ
                 tree_container = ui.column().classes('w-full gap-0')
 
+            # 設定タブの内容
             with ui.tab_panel(tab_set):
                 ui.label('CONFIG').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
+                # ターゲットディレクトリのパス入力フィールド
                 path_input = ui.input('Path', value=backend.target_dir).props('dark dense outlined').classes('w-full mb-4')
+                # パスを保存するボタン
                 ui.button('SAVE PATH', on_click=lambda: save_settings(path_input.value)).props('flat border').classes('w-full text-xs mb-4')
+                # ベクトルストアを再構築するボタン
                 rebuild_btn = ui.button('REBUILD', on_click=lambda: rebuild_task()).props('flat icon=refresh').classes('w-full border border-slate-800 text-xs')
 
+            # システムステータスタブの内容
             with ui.tab_panel(tab_sts):
                 ui.label('SYSTEM').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
+                # LM Studioの接続状態インジケーター
                 with ui.row().classes('items-center gap-2 mb-2'):
                     lm_indicator = ui.icon('circle', color='grey').classes('text-[12px]')
                     lm_status_text = ui.label('Checking...').classes('text-[11px] font-mono text-slate-400')
+                # 現在使用中のLM Studioモデル名
                 lm_model_label = ui.label('Model: N/A').classes('text-[10px] font-mono text-slate-500 mb-4 truncate w-full')
+                # CPU使用率表示
                 cpu_label = ui.label('CPU: 0%').classes('text-[11px] font-mono text-slate-400')
+                # RAM使用率表示
                 ram_label = ui.label('RAM: 0%').classes('text-[11px] font-mono text-slate-400')
 
+        # アプリケーションをシャットダウンするボタン
         ui.button('SHUTDOWN', on_click=app.shutdown).props('flat icon=power_settings_new color=red-4').classes('w-full mt-auto mb-4 px-4')
 
     # --- ヘッダー ---
