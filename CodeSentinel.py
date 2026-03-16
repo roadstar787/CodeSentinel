@@ -184,7 +184,8 @@ async def main_page():
 
     # --- サイドバー (復活) ---
     # アプリケーションのサイドバー（左ドロワー）
-    with ui.left_drawer(fixed=True).classes('p-0 bg-[#0a0f18]') as drawer:
+    # with ui.left_drawer(fixed=True).classes('p-0 bg-[#0a0f18]') as drawer:
+    with ui.left_drawer(fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
         # サイドバー内のタブナビゲーション
         with ui.tabs().classes('w-full text-slate-500') as tabs:
             tab_exp = ui.tab('EXP', icon='account_tree')  # エクスプローラータブ
