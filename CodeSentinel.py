@@ -5,6 +5,7 @@ import asyncio    # 非同期プログラミング
 import psutil     # システム監視（CPU, RAMなど）
 import httpx      # 非同期HTTPクライアント
 from pathlib import Path  # オブジェクト指向パス操作
+from collections import Counter  # コレクション（ヒット数カウント用）
 from nicegui import ui, run, app  # NiceGUIフレームワーク
 from langchain_core.prompts import ChatPromptTemplate  # LangChainプロンプトテンプレート
 from langchain_core.output_parsers import StrOutputParser  # LangChain出力パーサー
@@ -12,6 +13,10 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings  # OpenAIチャット�
 from langchain_community.vectorstores import FAISS  # FAISSベクトルストア
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # テキスト分割
 from langchain_community.document_loaders import TextLoader  # テキストファイルローダー
+
+# アイコンの定義
+USER_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+AI_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>'
 
 # --- システム設定 ---
 # アプリケーションの名前
@@ -81,19 +86,25 @@ class RAGBackend:
     # ドキュメントリトリーバーを取得するメソッド
     def get_retriever(self):
         if self.vectorstore:
-            return self.vectorstore.as_retriever(search_kwargs={"k": 5})  # 上位5件を検索
+            return self.vectorstore.as_retriever(search_kwargs={"k": 10})  # 上位10件を検索（rag_web_ui準拠で増加）
         return None
     
     # ベクトルストアを再構築するメソッド
     def rebuild_db(self):
         self.stats["is_rebuilding"] = True  # 再構築中フラグを立てる
         docs = []
+        # コードに適したチャンク分割のパラメーターを設定（rag_web_ui準拠）
+        code_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1200,
+            chunk_overlap=200,
+            separators=["\nclass ", "\ndef ", "\nvoid ", "\nint ", "\nstatic ", "\n\n", "\n", " ", ""]
+        )
         # 対象とするファイル拡張子
         extensions = {".hpp", ".h", ".cpp", ".py", ".json", ".cs"}
         try:
             path_obj = Path(self.target_dir)
             # 対象ディレクトリ内のファイルを再帰的に検索し、指定された拡張子を持つファイルのみを抽出
-            files = [p for p in path_obj.rglob('*') if p.suffix in extensions and ".venv" not in p.parts]
+            files = [p for p in path_obj.rglob('*') if p.suffix in extensions and ".venv" not in p.parts and ".git" not in p.parts]
             for p in files:
                 try:
                     # テキストローダーでファイルを読み込み
@@ -102,7 +113,7 @@ class RAGBackend:
                     # メタデータに相対パスを追加
                     for d in raw: d.metadata["source"] = str(p.relative_to(self.target_dir))
                     # テキストをチャンクに分割し、ドキュメントリストに追加
-                    docs.extend(RecursiveCharacterTextSplitter(chunk_size=1000).split_documents(raw))
+                    docs.extend(code_splitter.split_documents(raw))
                 except: 
                     # ファイル読み込みエラーはスキップ
                     continue
@@ -122,16 +133,22 @@ backend = RAGBackend()
 async def main_page():
     # ユーザー設定からターゲットディレクトリをロード。設定がなければRAGBackendのデフォルトを使用。
     backend.target_dir = app.storage.user.get('target_dir', backend.target_dir)
+    
+    # 検索状態の管理（ヒット数など）
+    state = {'hit_counts': Counter()}
 
     # カスタムCSSスタイルをページのheadに追加します。
     ui.add_head_html('''
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
         <style>
-            /* 検索結果でヒットしたファイルのスタイル */
-            .hit-file { color: #fbbf24 !important; font-weight: bold; background: #1e293b; border-radius: 4px; padding: 0 4px; }
-            /* 再構築ボタンのアニメーション */
+            .hit-file { font-weight: bold; }
             .rebuild-active { animation: pulse 1.5s infinite; color: #fbbf24 !important; }
-            /* pulseアニメーションのキーフレーム定義 */
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+            /* モダンチャットUI用 */
+            .chat-bubble { font-family: "Inter", sans-serif; font-size: 0.95rem; line-height: 1.7; border-radius: 1.25rem; }
+            .code-preview pre, .code-preview code { font-family: "JetBrains Mono", monospace !important; font-size: 13px !important; }
         </style>
     ''')
 
@@ -141,7 +158,7 @@ async def main_page():
         # プレビューダイアログのタイトル
         preview_title = ui.label('').classes('text-sm font-bold mb-2')
         # プレビューするコードを表示するスクロール可能なエリア
-        with ui.scroll_area().classes('w-full flex-grow border p-4 bg-[#0d1117]'):
+        with ui.scroll_area().classes('w-full flex-grow border p-4 bg-[#0d1117] code-preview'):
             # コードコンテンツを表示するためのMarkdown要素
             preview_code = ui.markdown('').classes('text-xs text-slate-300')
         # ダイアログを閉じるボタン
@@ -223,12 +240,15 @@ async def main_page():
     chat_results = ui.column().classes('w-full max-w-4xl mx-auto p-8 pb-40 gap-4')
 
     # --- ヘルパー ---
-    def refresh_explorer(highlight_files=None):
-        highlight_files = highlight_files or []
+    def refresh_explorer():
         tree_container.clear()
         def build_nodes(path: Path, relative_to: Path):
             rel = str(path.relative_to(relative_to)) if path != relative_to else ""
-            node = {"id": rel if path.is_file() else None, "label": path.name, "class": "hit-file" if rel in highlight_files else ""}
+            hits = state['hit_counts'].get(rel, 0)
+            hit_label = f" • {hits}" if hits > 0 else ""
+            bg_style = f"background: rgba(99, 102, 241, {min(hits * 0.15, 0.4)});" if hits > 0 else ""
+            
+            node = {"id": rel if path.is_file() else None, "label": path.name + hit_label, "class": "hit-file" if hits > 0 else "", "style": bg_style}
             if path.is_dir():
                 node["children"] = [build_nodes(p, relative_to) for p in sorted(path.iterdir())
                                     if not p.name.startswith('.') and (p.is_dir() or p.suffix in {".py", ".cs", ".cpp", ".h", ".json"})]
@@ -237,10 +257,11 @@ async def main_page():
             return node
         try:
             root = Path(backend.target_dir)
+            if not root.exists(): return
             tree_data = [build_nodes(root, root)]
             with tree_container:
                 t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value)).props('dark dense')
-                t.add_slot('default-header', '<div :class="props.node.class">{{ props.node.label }}</div>')
+                t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
         except: pass
 
     async def update_status_loop():
@@ -257,29 +278,46 @@ async def main_page():
         query = input_field.value.strip()
         if not query: return
         input_field.value = ''
+        
         with chat_results:
-            ui.label(f"Q: {query}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
-            md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
-            source_row = ui.row().classes('gap-2 mt-1')
+            with ui.row().classes('w-full justify-end items-start gap-3'):
+                ui.label(query).classes('bg-indigo-600 text-white p-4 chat-bubble max-w-[80%] shadow-lg shadow-indigo-100 font-medium')
+                with ui.element('div').classes('text-indigo-600 bg-indigo-50 p-2.5 rounded-2xl shadow-sm mt-1'):
+                    ui.html(USER_ICON)
+            
+            with ui.row().classes('w-full justify-start items-start gap-3 mt-4'):
+                with ui.element('div').classes('text-white bg-slate-900 p-2.5 rounded-2xl shadow-md mt-1'):
+                    ui.html(AI_ICON)
+                with ui.column().classes('max-w-[85%]'):
+                    response_card = ui.card().classes('p-6 rounded-3xl rounded-tl-none shadow-sm border border-slate-100 w-full bg-white text-black')
+                    with response_card: md = ui.markdown('Thinking...').classes('text-slate-800 leading-relaxed text-sm')
+                    source_row = ui.row().classes('gap-2 mt-2')
+
         try:
             retriever = backend.get_retriever()
+            if not retriever:
+                md.set_content("Database not loaded.")
+                return
             docs = await run.io_bound(retriever.invoke, query)
-            hits = list(set([d.metadata['source'] for d in docs]))
-            refresh_explorer(highlight_files=hits)
+            hits = [d.metadata['source'] for d in docs]
+            state['hit_counts'] = Counter(hits)
+            refresh_explorer()
+            
+            unique_hits = list(set(hits))
             with source_row:
-                for p in hits:
-                    ui.button(p, on_click=lambda e, path=p: open_preview(path)).props('outline dense size=xs').classes('text-[10px] text-slate-500')
+                for p in unique_hits:
+                    ui.button(p, on_click=lambda e, path=p: open_preview(path)).props('outline dense size=xs').classes('text-[10px] text-indigo-500 border-indigo-200 bg-indigo-50')
+            
             context = "\n".join([f"FILE: {d.metadata['source']}\n{d.page_content}" for d in docs])
-            llm = ChatOpenAI(base_url=backend.lm_studio_url, api_key="lm-studio", streaming=True)
-            chain = ChatPromptTemplate.from_template("Context:\n{c}\n\nQ: {i}") | llm | StrOutputParser()
+            llm = ChatOpenAI(base_url=backend.lm_studio_url, api_key="lm-studio", temperature=0.1, streaming=True)
+            chain = ChatPromptTemplate.from_template("回答は日本語で行ってください。\n\nContext:\n{c}\n\nQ: {i}") | llm | StrOutputParser()
             full = ""
             async for chunk in chain.astream({"c": context, "i": query}):
                 full += chunk
                 md.set_content(full)
                 ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
-        # except: md.set_content("Connection Error.")
         except Exception as e:
-            # 接続エラーの理由をターミナル（黒い画面）に表示
+            md.set_content(f"Error: {str(e)}")
             print(f"Connection Error Detail: {e}")
 
     with ui.footer().classes('bg-transparent'):
