@@ -14,10 +14,6 @@ from langchain_community.vectorstores import FAISS  # FAISSベクトルストア
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # テキスト分割
 from langchain_community.document_loaders import TextLoader  # テキストファイルローダー
 
-# アイコンの定義
-USER_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
-AI_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>'
-
 # --- システム設定 ---
 # アプリケーションの名前
 APP_NAME = "Code Sentinel"
@@ -280,18 +276,9 @@ async def main_page():
         input_field.value = ''
         
         with chat_results:
-            with ui.row().classes('w-full justify-end items-start gap-3'):
-                ui.label(query).classes('bg-indigo-600 text-white p-4 chat-bubble max-w-[80%] shadow-lg shadow-indigo-100 font-medium')
-                with ui.element('div').classes('text-indigo-600 bg-indigo-50 p-2.5 rounded-2xl shadow-sm mt-1'):
-                    ui.html(USER_ICON)
-            
-            with ui.row().classes('w-full justify-start items-start gap-3 mt-4'):
-                with ui.element('div').classes('text-white bg-slate-900 p-2.5 rounded-2xl shadow-md mt-1'):
-                    ui.html(AI_ICON)
-                with ui.column().classes('max-w-[85%]'):
-                    response_card = ui.card().classes('p-6 rounded-3xl rounded-tl-none shadow-sm border border-slate-100 w-full bg-white text-black')
-                    with response_card: md = ui.markdown('Thinking...').classes('text-slate-800 leading-relaxed text-sm')
-                    source_row = ui.row().classes('gap-2 mt-2')
+            ui.label(f"Q: {query}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
+            md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
+            source_row = ui.row().classes('gap-2 mt-1')
 
         try:
             retriever = backend.get_retriever()
