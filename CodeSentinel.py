@@ -320,14 +320,16 @@ async def main_page():
 
     async def rebuild_task():
         # ボタンをアニメーション状態に変更
-        rebuild_btn.classes(add='rebuild-active')
+        rebuild_btn.classes(add='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
+        rebuild_btn.classes(remove='border-slate-800')
         rebuild_btn.set_text('BUILDING...')
         
         # バックグラウンドで再構築を実行
         await run.io_bound(backend.rebuild_db)
         
         # アニメーション状態を解除してテキストを元に戻す
-        rebuild_btn.classes(remove='rebuild-active')
+        rebuild_btn.classes(remove='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
+        rebuild_btn.classes(add='border-slate-800')
         rebuild_btn.set_text('REBUILD')
         
         idx_label.set_text(f'IDX: {backend.stats["total_chunks"]}')
