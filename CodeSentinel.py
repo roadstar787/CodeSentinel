@@ -140,7 +140,7 @@ async def main_page():
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
         <style>
             .hit-file { font-weight: bold; }
-            .rebuild-active { animation: pulse 1.5s infinite; color: #fbbf24 !important; }
+            .rebuild-active { animation: pulse 1.5s infinite; color: #fbbf24 !important; border-color: #fbbf24 !important; }
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
             /* モダンチャットUI用 */
             .chat-bubble { font-family: "Inter", sans-serif; font-size: 0.95rem; line-height: 1.7; border-radius: 1.25rem; }
