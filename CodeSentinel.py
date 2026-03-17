@@ -319,9 +319,17 @@ async def main_page():
         refresh_explorer()
 
     async def rebuild_task():
+        # ボタンをアニメーション状態に変更
         rebuild_btn.classes(add='rebuild-active')
+        rebuild_btn.set_text('BUILDING...')
+        
+        # バックグラウンドで再構築を実行
         await run.io_bound(backend.rebuild_db)
+        
+        # アニメーション状態を解除してテキストを元に戻す
         rebuild_btn.classes(remove='rebuild-active')
+        rebuild_btn.set_text('REBUILD')
+        
         idx_label.set_text(f'IDX: {backend.stats["total_chunks"]}')
         refresh_explorer()
 
