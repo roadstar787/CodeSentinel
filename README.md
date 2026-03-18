@@ -1,4 +1,4 @@
-# CodeSentinel (v0.4.0)
+# CodeSentinel (v0.6.0)
 
 ## 概要
 CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エンジニアのための高度なコード分析・質問応答システムです。
@@ -7,24 +7,40 @@ CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エン
 
 ## 主な機能
 
-### 1. ギャップ分析 (Gap Analysis) ✨ New in v0.4.0
+### 1. ギャップ分析 (Gap Analysis)
 - **仕様と実装の比較**: 仕様書（DOCS）とソースコード（CODE）の内容を比較し、矛盾点や未実装項目を自動的に抽出します。
 - **構造化された可視化**: 分析結果を視覚的な「ギャップカード」として表示し、問題の詳細を一目で確認できます。
 - **ダイレクトジャンプ**: カード内のボタンから、指摘された具体的なファイルと行番号へ即座に移動できます。
 
-### 2. 高度なコードプレビュー
-- **2カラム表示**: 行番号とコードを分離して表示し、大規模ファイルでも高い視認性を維持します。
-- **シンタックスハイライト**: 言語ごとの色付けにより、構造を直感的に把握できます。
-- **ファイル内検索**: プレビュー内でワード検索が可能。ヒット件数の表示や、Enter キーによる巡回機能を搭載しています。
+### 2. クリーンなモジュール化設計 ✨ New in v0.5.x - v0.6.0
+- **バックエンド/フロントエンドの分離**: 疎結合なアーキテクチャにより、機能拡張やメンテナンスが容易になりました。
+- **コンポーネント指向 UI**: エクスプローラー、プレビューア、チャット等の UI 要素が独立したモジュールとして再構成されています。
+- **日本語コメントの完備**: すべてのソースコードに詳細な日本語コメントを追加し、内部ロジックの理解を助けます。
 
-### 3. ハイブリッド RAG 検索
-- **マルチドキュメント対応**: `.py`, `.cpp`, `.cs`, `.h`, `.json` などのコードだけでなく、`.pdf`, `.md`, `.xlsx`, `.pptx` などのドキュメントもインデックス対象です。
+### 3. 高度なコードプレビュー
+- **2カラム表示**: 行番号とコードを分離して表示し、高い視認性を維持します。
+- **全文検索 & ジャンプ**: プレビュー内でのワード検索、Enter キーによる次候補巡回、および外部からの行番号指定ジャンプに対応。
+
+### 4. ハイブリッド RAG 検索
+- **マルチドキュメント対応**: `.py`, `.cpp`, `.cs`, `.h`, `.json` などのコードに加え、`.pdf`, `.md`, `.xlsx`, `.pptx` などのドキュメントをサポート。
 - **FAISS ベクトルストア**: 高速かつ精度の高いセマンティック検索を実現します。
 
-### 4. システム監視と管理
-- **リアルタイムステータス**: CPU/RAM 使用率、LM Studio 接続状態、ロード中のモデル名をリアルタイムに表示。
-- **チャット履歴管理**: 過去の質問や分析結果を保存・再開できます。
-- **インデックス再構築**: UI からワンクリックでベクトル DB の構築・更新が可能。
+## ディレクトリ構成
+```text
+CodeSentinel/
+├── backend/
+│   ├── core.py          # RAGバックエンド、DB管理、履歴処理
+│   └── loaders.py       # (将来用) ファイルローダー拡張
+├── ui/
+│   ├── styles.py        # アプリ共通CSS・テーマ
+│   ├── layouts.py       # ヘッダー・フッター・サイドバー構成
+│   └── components/
+│       ├── explorer.py  # ファイルツリー
+│       ├── preview.py   # コードプレビューア
+│       └── chat.py      # チャット描画・Gapカード
+├── CodeSentinel.py      # メインエントリポイント
+└── chat_history/        # チャット履歴保存用 (自動生成)
+```
 
 ## インストール方法
 
@@ -32,8 +48,6 @@ CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エン
    ```bash
    pip install -r requirements.txt
    ```
-   ※主な依存: `nicegui`, `langchain`, `faiss-cpu`, `psutil`, `httpx`, `unstructured` (ドキュメント解析用)
-
 2. **LM Studio の準備**
    - [LM Studio](https://lmstudio.ai/) をインストール。
    - モデルをダウンロードし、Local Server を起動（デフォルト: Port 1234）。
@@ -46,17 +60,9 @@ CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エン
    ```
 2. **初期設定**
    - ブラウザで `http://localhost:8080` にアクセス。
-   - サイドバーの「SET」タブで、解析対象の「Code Path」と「Doc Path」を入力。
-   - 「REBUILD」をクリックしてインデックスを構築します。
+   - サイドバーの「SET」タブで「Code Path」と「Doc Path」を入力し「REBUILD」を実行。
 3. **分析**
-   - 画面上部のトグルで「Q&A (Normal)」または「GAP (Gap Analysis)」を選択。
-   - 質問を入力すると、関連するコード・仕様書に基づいた回答が生成されます。
-
-## 技術スタック
-- **UI**: NiceGUI (Python-based Web UI)
-- **RAG**: LangChain, FAISS
-- **Backend Content**: OpenAI Embeddings API (LM Studio Compatible)
-- **Monitoring**: psutil
+   - 「Q&A (Normal)」または「GAP (Gap Analysis)」モードを選択して質問を入力します。
 
 ## ライセンス
 MIT License
