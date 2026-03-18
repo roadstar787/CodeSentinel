@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.3"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -253,15 +253,52 @@ async def main_page():
 
     # --- プレビューダイアログ ---
     # ファイルの内容を表示するためのダイアログ
-    with ui.dialog() as preview_dialog, ui.card().classes('w-[80vw] max-w-4xl h-[80vh]') as card:
-        # プレビューダイアログのタイトル
-        preview_title = ui.label('').classes('text-sm font-bold mb-2')
+    with ui.dialog() as preview_dialog, ui.card().classes('w-[80vw] max-w-4xl h-[80vh] p-0') as card:
+        with ui.row().classes('w-full items-center p-4 bg-slate-50 border-b gap-4'):
+            # プレビューダイアログのタイトル
+            preview_title = ui.label('').classes('text-sm font-bold flex-grow text-slate-700')
+            # 検索入力
+            preview_search = ui.input(placeholder='Search...').props('dense outlined clearable').classes('w-48 text-xs')
+            preview_search.on('keydown.enter', lambda: search_in_preview())
+            ui.button(icon='search', on_click=lambda: search_in_preview()).props('flat round dense color=slate-400')
+            # ダイアログを閉じるボタン
+            ui.button(icon='close', on_click=preview_dialog.close).props('flat round dense color=slate-400')
+        
         # プレビューするコードを表示するスクロール可能なエリア
-        with ui.scroll_area().classes('w-full flex-grow border p-4 bg-[#0d1117] code-preview'):
-            # コードコンテンツを表示するためのMarkdown要素
-            preview_code = ui.markdown('').classes('text-xs text-slate-300')
-        # ダイアログを閉じるボタン
-        ui.button('CLOSE', on_click=preview_dialog.close).props('flat').classes('ml-auto')
+        with ui.scroll_area().classes('w-full flex-grow bg-[#0d1117] code-preview') as preview_scroll:
+            # コード表示 (ui.markdownからui.codeに変更)
+            preview_code_container = ui.code('', language='text').classes('text-xs w-full jetbrains-mono')
+
+    # プレビュー内検索の状態管理
+    search_state = {'last_query': '', 'last_index': -1, 'full_content': ''}
+
+    def search_in_preview():
+        query = str(preview_search.value or "")
+        if not query: return
+        content = str(search_state.get('full_content', ""))
+        if not content: return
+        lines = content.splitlines()
+        
+        # 次のヒット箇所を探す (循環検索)
+        last_idx = int(search_state.get('last_index', -1))
+        last_q = str(search_state.get('last_query', ""))
+        start_idx = last_idx + 1 if query == last_q else 0
+        
+        found = False
+        for i in range(len(lines)):
+            idx = (start_idx + i) % len(lines)
+            if query.lower() in lines[idx].lower():
+                # ヒット！スクロール実行 (1行あたり約20pxの概算)
+                line_height = 20 
+                preview_scroll.scroll_to(pixels=idx * line_height)
+                search_state['last_index'] = idx
+                search_state['last_query'] = query
+                ui.notify(f"Found on line {idx + 1}", color='indigo', pos='top')
+                found = True
+                break
+        if not found:
+            ui.notify("Not found", color='orange', pos='top')
+            search_state['last_index'] = -1
 
     # ファイルプレビューを開く関数
     def open_preview(file_path, base_dir=None):
@@ -276,13 +313,27 @@ async def main_page():
         try:
             # ファイルの内容をUTF-8で読み込み
             content = full_path.read_text(encoding='utf-8')
+            search_state['full_content'] = content
+            search_state['last_index'] = -1
             # プレビュータイトルを設定
-            preview_title.set_text(f"PREVIEW: {file_path}")
-            # 言語指定付きでMarkdownセット (ファイル拡張子に基づいてシンタックスハイライト)
-            ext = full_path.suffix[1:] or 'text'
-            preview_code.set_content(f"```{ext}\n{content}\n```")
+            preview_title.set_text(f"{file_path}")
+            # 言語指定 (ファイル拡張子に基づいてシンタックスハイライト)
+            ext = full_path.suffix.lower()[1:] or 'text'
+            # PDFやExcelはテキストとして見れない場合があるので分岐
+            if ext in {'pdf', 'xlsx', 'pptx'}:
+                preview_code_container.set_content(f"Binary file ({ext}) cannot be previewed as text.")
+                preview_code_container.language = 'text'
+            else:
+                # 行番号を手動で付与
+                lines = content.splitlines()
+                max_ln = len(str(len(lines)))
+                numbered = "\n".join(f"{str(i+1).rjust(max_ln)} | {line}" for i, line in enumerate(lines))
+                preview_code_container.set_content(numbered)
+                preview_code_container.language = ext
+            
             # プレビューダイアログを開く
             preview_dialog.open()
+            preview_scroll.scroll_to(pixels=0) # 常に上から開始
         except Exception as e:
             # ファイル読み込みエラーを通知
             ui.notify(f"Read Error: {e}", color='red')
