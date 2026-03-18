@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.9"
+APP_VERSION = "0.4.0"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -281,6 +281,18 @@ async def main_page():
             .status-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; width: 100%; }
             .status-label { font-size: 10px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
             .status-value { font-size: 12px; color: #f1f5f9; font-family: "JetBrains Mono", monospace; font-weight: 500; }
+            
+            /* Gap Analysis カードスタイル */
+            .gap-card { 
+                border-left: 4px solid #f87171; 
+                background: #fef2f2; 
+                padding: 12px; 
+                border-radius: 8px; 
+                margin-top: 8px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            }
+            .gap-file { font-size: 0.75rem; font-weight: bold; color: #b91c1c; margin-bottom: 4px; }
+            .gap-issue { font-size: 0.85rem; color: #450a0a; line-height: 1.5; }
         </style>
     ''')
 
@@ -344,7 +356,7 @@ async def main_page():
             search_state['last_index'] = -1
 
     # ファイルプレビューを開く関数
-    def open_preview(file_path, base_dir=None):
+    def open_preview(file_path, base_dir=None, jump_line=None):
         # ファイルパスが指定されていなければ何もしない
         if not file_path: return
         # 基準ディレクトリを決定
@@ -381,7 +393,17 @@ async def main_page():
             
             # プレビューダイアログを開く
             preview_dialog.open()
-            preview_scroll.scroll_to(pixels=0)
+            
+            # 指定行があればスクロール
+            if jump_line is not None:
+                try:
+                    line_idx = int(jump_line) - 1
+                    line_height = 20
+                    # ダイアログが開くのを少し待ってからスクロール
+                    ui.timer(0.2, lambda: preview_scroll.scroll_to(pixels=line_idx * line_height), once=True)
+                except: pass
+            else:
+                preview_scroll.scroll_to(pixels=0)
         except Exception as e:
             # ファイル読み込みエラーを通知
             ui.notify(f"Read Error: {e}", color='red')
@@ -596,14 +618,25 @@ async def main_page():
             
             if backend.mode == 'Gap':
                 prompt = """あなたは優秀なソフトウェアエンジニア兼テクニカルドキュメントアナリストです。
-提供されたコンテキストには、仕様書などのドキュメント(TYPE: document)と、ソースコード(TYPE: code)の両方が含まれている可能性があります。
+提供されたコンテキストに基づいて、仕様書(document)とソースコード(code)を比較分析してください。
 
 Q: {i}
 
-【指示】
-1. 仕様書(document)に記載されている内容と、実際のソースコード(code)を比較してください。
+【回答ガイドライン】
+1. 仕様書(document)に記載されている内容と、実際のソースコード(code)を詳細に比較してください。
 2. 仕様にあるが実装されていない項目、または仕様と実装が矛盾している箇所を特定してください。
-3. 回答は日本語で、具体的なファイル名や仕様書の内容を引用して論理的に説明してください。
+3. 回答は日本語で、具体的なファイル名や仕様を引用して説明してください。
+
+【重要：構造化データの出力】
+回答の最後に、以下の形式で分析結果の要約を **必ず** 含めてください。
+各項目は JSON 形式で `<gaps>` タグで囲んでください。
+例:
+<gaps>
+[
+  {{"file": "main.py", "line": 42, "issue": "仕様ではAとされていますが、実装はBになっています"}},
+  {{"file": "utils.py", "line": 10, "issue": "仕様にある例外処理が実装されていません"}}
+]
+</gaps>
 
 Context:
 {c}
@@ -615,9 +648,35 @@ Context:
             full = ""
             async for chunk in chain.astream({"c": context, "i": query}):
                 full += chunk
-                md.set_content(full)
+                # <gaps> タグ以降を表示しないようにトリミング（後で構造化表示するため）
+                display_text = full
+                if "<gaps>" in full:
+                    display_text = full.split("<gaps>")[0]
+                md.set_content(display_text)
                 ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
             
+            # Gap データの解析と可視化
+            if backend.mode == 'Gap' and "<gaps>" in full:
+                try:
+                    gap_json_str = full.split("<gaps>")[1].split("</gaps>")[0].strip()
+                    gaps = json.loads(gap_json_str)
+                    if gaps:
+                        with chat_results:
+                            ui.label('ANALYSIS RESULTS (GAPS)').classes('text-[10px] text-red-500 font-bold mt-2 tracking-widest')
+                            for gap in gaps:
+                                f_path = gap.get("file", "Unknown")
+                                l_num = gap.get("line")
+                                issue = gap.get("issue", "Unknown")
+                                with ui.element('div').classes('gap-card w-full'):
+                                    with ui.row().classes('items-center justify-between w-full'):
+                                        ui.label(f"FILE: {f_path} (Line {l_num})" if l_num else f"FILE: {f_path}").classes('gap-file')
+                                        if f_path != "Unknown":
+                                            ui.button('JUMP', icon='launch', on_click=lambda e, fp=f_path, ln=l_num: open_preview(fp, backend.target_dir, ln))\
+                                                .props('flat dense size=xs color=red-7').classes('text-[9px]')
+                                    ui.label(issue).classes('gap-issue')
+                except Exception as e:
+                    print(f"Gap Parse Error: {e}")
+
             # コピーボタンを追加
             with chat_results:
                 ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=full: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
