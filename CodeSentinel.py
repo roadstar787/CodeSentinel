@@ -2,6 +2,9 @@
 import os         # オペレーティングシステム機能
 import sys        # システム固有のパラメータと機能
 import asyncio    # 非同期プログラミング
+import json       # JSON形式のデータ処理
+import uuid       # ユニークID生成
+from datetime import datetime # 日時操作
 import psutil     # システム監視（CPU, RAMなど）
 import httpx      # 非同期HTTPクライアント
 from pathlib import Path  # オブジェクト指向パス操作
@@ -40,6 +43,9 @@ class RAGBackend:
         self.lm_studio_url = "http://localhost:1234/v1"
         # 動作モード (Normal or GapAnalysis)
         self.mode = "Normal"
+        # チャット履歴の保存ディレクトリ
+        self.chat_dir = Path("chat_history")
+        self.chat_dir.mkdir(exist_ok=True)
         # ベクトルストアのインスタンス
         self.vectorstore = None
         # テキスト埋め込みモデルの設定
@@ -87,6 +93,56 @@ class RAGBackend:
                 # ロード失敗
                 return False
         return False
+
+    # --- チャット履歴管理メソッド ---
+    def list_chats(self):
+        """保存されているチャット履歴の一覧を取得"""
+        chats = []
+        for f in self.chat_dir.glob("*.json"):
+            try:
+                with open(f, "r", encoding="utf-8") as j:
+                    data = json.load(j)
+                    chats.append({
+                        "id": f.stem,
+                        "title": data.get("title", "Untitled Chat"),
+                        "date": data.get("date", "")
+                    })
+            except: continue
+        return sorted(chats, key=lambda x: x["date"], reverse=True)
+
+    def load_chat(self, chat_id):
+        """特定のチャット履歴をロード"""
+        path = self.chat_dir / f"{chat_id}.json"
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return None
+
+    def save_chat(self, chat_id, messages, title=None):
+        """チャット履歴を保存"""
+        path = self.chat_dir / f"{chat_id}.json"
+        # 既存のデータを読み込んでタイトルを保持
+        existing_title = "New Chat"
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    old_data = json.load(f)
+                    existing_title = old_data.get("title", existing_title)
+            except: pass
+        
+        data = {
+            "title": title if title else existing_title,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "messages": messages
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def delete_chat(self, chat_id):
+        """チャット履歴を削除"""
+        path = self.chat_dir / f"{chat_id}.json"
+        if path.exists():
+            path.unlink()
 
     # --- 抜けていたメソッドを修正 ---
     # ドキュメントリトリーバーを取得するメソッド
@@ -172,6 +228,11 @@ async def main_page():
     backend.doc_dir = app.storage.user.get('doc_dir', backend.doc_dir)
     backend.mode = app.storage.user.get('mode', 'Normal')
     
+    # チャットセッション管理
+    session = {'id': app.storage.user.get('current_chat_id', str(uuid.uuid4())), 'history': []}
+    chat_data = backend.load_chat(session['id'])
+    if chat_data: session['history'] = chat_data.get('messages', [])
+
     # 検索状態の管理（ヒット数など）
     state = {'hit_counts': Counter()}
 
@@ -233,6 +294,7 @@ async def main_page():
         # サイドバー内のタブナビゲーション
         with ui.tabs().classes('w-full text-slate-500') as tabs:
             tab_exp = ui.tab('EXP', icon='account_tree')  # エクスプローラータブ
+            tab_cht = ui.tab('CHATS', icon='chat')  # チャット履歴タブ
             tab_set = ui.tab('SET', icon='settings')  # 設定タブ
             tab_sts = ui.tab('STS', icon='hub')  # ステータスタブ
 
@@ -243,6 +305,13 @@ async def main_page():
                 ui.label('EXPLORER').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
                 # ファイルツリーを表示するコンテナ
                 tree_container = ui.column().classes('w-full gap-0')
+
+            # チャット履歴タブの内容
+            with ui.tab_panel(tab_cht):
+                with ui.row().classes('w-full items-center justify-between mb-4'):
+                    ui.label('HISTORY').classes('text-[10px] text-slate-600 tracking-widest')
+                    ui.button(icon='add', on_click=lambda: start_new_chat()).props('flat round dense color=slate-400')
+                chat_list_container = ui.column().classes('w-full gap-2')
 
             # 設定タブの内容
             with ui.tab_panel(tab_set):
@@ -338,6 +407,9 @@ async def main_page():
         if not query: return
         input_field.value = ''
         
+        # 履歴に追加
+        session['history'].append({"role": "user", "content": query})
+
         with chat_results:
             ui.label(f"Q: {query}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
             md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
@@ -392,9 +464,73 @@ Context:
                 full += chunk
                 md.set_content(full)
                 ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
+            
+            # 履歴に追加して保存
+            session['history'].append({"role": "ai", "content": full, "sources": unique_hits})
+            title = query[:20] + ("..." if len(query) > 20 else "")
+            backend.save_chat(session['id'], session['history'], title if len(session['history']) <= 2 else None)
+            refresh_chat_list()
+
         except Exception as e:
             md.set_content(f"Error: {str(e)}")
-            print(f"Connection Error Detail: {e}")
+            print(f"Error Detail: {e}")
+
+    def refresh_chat_list():
+        chat_list_container.clear()
+        chats = backend.list_chats()
+        with chat_list_container:
+            if not chats:
+                ui.label('No history').classes('text-[10px] text-slate-500 italic p-2')
+            for c in chats:
+                with ui.row().classes('w-full items-center gap-1 group'):
+                    # チャット選択ボタン
+                    # クロージャの副作用を避けるため lambda の引数にデフォルト値を設定
+                    btn = ui.button(on_click=lambda e, cid=c['id']: load_chat_session(cid)).props('flat no-caps dense').classes('flex-grow text-left justify-start px-2 py-1 rounded hover:bg-slate-700/50')
+                    with btn:
+                        with ui.column().classes('gap-0'):
+                            ui.label(c['title']).classes('text-xs text-slate-200 line-clamp-1')
+                            ui.label(c['date']).classes('text-[9px] text-slate-500')
+                    # 削除ボタン
+                    ui.button(icon='delete', on_click=lambda e, cid=c['id']: delete_chat_session(cid)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+
+    def load_chat_session(chat_id):
+        data = backend.load_chat(chat_id)
+        if not data: return
+        session['id'] = chat_id
+        session['history'] = data.get('messages', [])
+        app.storage.user['current_chat_id'] = chat_id
+        
+        chat_results.clear()
+        with chat_results:
+            for msg in session['history']:
+                if msg['role'] == 'user':
+                    ui.label(f"Q: {msg['content']}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
+                else:
+                    ui.markdown(msg['content']).classes('text-slate-700 text-sm p-4 w-full border-b')
+                    if msg.get('sources'):
+                        with ui.row().classes('gap-2 mt-1'):
+                            for p, t in msg['sources']:
+                                b_dir = backend.target_dir if t == 'code' else backend.doc_dir
+                                ui.button(p, on_click=lambda e, path=p, bd=b_dir: open_preview(path, bd)).props('outline dense size=xs').classes('text-[10px] text-indigo-500 border-indigo-200 bg-indigo-50')
+        ui.notify(f"Chat loaded: {data['title']}")
+        refresh_chat_list()
+
+    def start_new_chat():
+        new_id = str(uuid.uuid4())
+        session['id'] = new_id
+        session['history'] = []
+        app.storage.user['current_chat_id'] = new_id
+        chat_results.clear()
+        ui.notify("New chat started")
+        refresh_chat_list()
+
+    def delete_chat_session(chat_id):
+        backend.delete_chat(chat_id)
+        if session['id'] == chat_id:
+            start_new_chat()
+        else:
+            refresh_chat_list()
+        ui.notify("Chat deleted")
 
     with ui.footer().classes('bg-transparent'):
         with ui.row().classes('w-full max-w-4xl mx-auto p-4 bg-white border border-slate-300 items-end gap-2 shadow-lg rounded-t-xl'):
@@ -431,7 +567,14 @@ Context:
         refresh_explorer()
 
     backend.load_db()
+    
+    # 初期読込
+    if session['history']:
+        # 履歴がある場合は表示を復元
+        load_chat_session(session['id'])
+    
     refresh_explorer()
+    refresh_chat_list()
     asyncio.create_task(update_status_loop())
 
 ui.run(title=APP_NAME, storage_secret='sentinel_secret_key')
