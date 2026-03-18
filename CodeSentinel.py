@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.5"
+APP_VERSION = "0.3.6"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -329,10 +329,11 @@ async def main_page():
                 if ext in {'pdf', 'xlsx', 'pptx'}:
                     ui.label(f"Binary file ({ext}) cannot be previewed as text.").classes('text-slate-400 italic')
                 else:
-                    # 行番号を手動で付与
+                    # 行番号を手動で付与 (視認性のために少し余白を多めにとる)
                     lines = content.splitlines()
-                    max_ln = len(str(len(lines)))
-                    numbered = "\n".join(f"{str(i+1).rjust(max_ln)} | {line}" for i, line in enumerate(lines))
+                    max_ln = max(2, len(str(len(lines))))
+                    # rjustの後にスペースを入れることで、1桁目が隠れるのを防ぐ
+                    numbered = "\n".join(f" {str(i+1).rjust(max_ln)} | {line}" for i, line in enumerate(lines))
                     ui.code(numbered, language=ext).classes('text-xs w-full jetbrains-mono bg-transparent')
             
             # プレビューダイアログを開く
@@ -439,12 +440,10 @@ async def main_page():
             # Code Directory
             root = Path(backend.target_dir)
             if root.exists():
-                # ルートフォルダ自体ではなく、その中身をトップレベルにする
-                supported = {".py", ".cs", ".cpp", ".h", ".hpp", ".json"}
-                tree_data = [build_nodes(p, root) for p in sorted(root.iterdir())
-                             if not p.name.startswith('.') and (p.is_dir() or p.suffix.lower() in supported)]
+                # ルートフォルダ自体をトップレベルノードにする
+                tree_data = [build_nodes(root, root)]
                 with tree_container:
-                    ui.label('CODE').classes('text-[9px] text-slate-500 mt-2')
+                    ui.label('CODE').classes('text-[9px] text-slate-500 mt-2 uppercase tracking-tighter')
                     t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.target_dir)).props('dark dense expand-all')
                     t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
             
@@ -452,11 +451,10 @@ async def main_page():
             if backend.doc_dir:
                 doc_root = Path(backend.doc_dir)
                 if doc_root.exists():
-                    supported_docs = {".pdf", ".md", ".xlsx", ".pptx"}
-                    doc_tree_data = [build_nodes(p, doc_root) for p in sorted(doc_root.iterdir())
-                                     if not p.name.startswith('.') and (p.is_dir() or p.suffix.lower() in supported_docs)]
+                    # ドキュメントルートも表示
+                    doc_tree_data = [build_nodes(doc_root, doc_root)]
                     with tree_container:
-                        ui.label('DOCS').classes('text-[9px] text-slate-500 mt-2')
+                        ui.label('DOCS').classes('text-[9px] text-slate-500 mt-2 uppercase tracking-tighter')
                         t_doc = ui.tree(nodes=doc_tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.doc_dir)).props('dark dense expand-all')
                         t_doc.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
         except Exception as e:
