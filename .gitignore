@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+.nicegui/
+chat_history/
+faiss_index/
+faiss_index_code/
