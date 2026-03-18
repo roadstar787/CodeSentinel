@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.6"
+APP_VERSION = "0.3.7"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -247,10 +247,23 @@ async def main_page():
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
             /* モダンチャットUI用 */
             .chat-bubble { font-family: "Inter", sans-serif; font-size: 0.95rem; line-height: 1.7; border-radius: 1.25rem; }
-            .code-preview pre, .code-preview code { font-family: "JetBrains Mono", monospace !important; font-size: 13px !important; }
             .code-preview { background-color: #0d1117 !important; border-radius: 8px; color: #e6edf3; }
-            /* Prismのデフォルトテキスト色を調整 (バックボーン) */
-            .code-preview .nicegui-code pre { background: transparent !important; margin: 0 !important; color: inherit !important; }
+            .code-preview pre, .code-preview code { font-family: "JetBrains Mono", monospace !important; font-size: 13px !important; }
+            /* Prismの背景と余白を完全に除去して親に合わせる */
+            .code-preview .nicegui-code { padding: 0 !important; background: transparent !important; }
+            .code-preview .nicegui-code pre { background: transparent !important; margin: 0 !important; padding: 0 !important; color: inherit !important; overflow: visible !important; }
+            .line-numbers-col { 
+                border-right: 1px solid #30363d; 
+                color: #6e7681; 
+                text-align: right; 
+                padding-right: 12px !important; 
+                user-select: none;
+                line-height: 20px; /* 重要: コードの行高さと合わせる */
+            }
+            .code-col {
+                padding-left: 12px !important;
+                line-height: 20px; /* 重要: 行番号と合わせる */
+            }
         </style>
     ''')
 
@@ -329,16 +342,19 @@ async def main_page():
                 if ext in {'pdf', 'xlsx', 'pptx'}:
                     ui.label(f"Binary file ({ext}) cannot be previewed as text.").classes('text-slate-400 italic')
                 else:
-                    # 行番号を手動で付与 (視認性のために少し余白を多めにとる)
                     lines = content.splitlines()
-                    max_ln = max(2, len(str(len(lines))))
-                    # rjustの後にスペースを入れることで、1桁目が隠れるのを防ぐ
-                    numbered = "\n".join(f" {str(i+1).rjust(max_ln)} | {line}" for i, line in enumerate(lines))
-                    ui.code(numbered, language=ext).classes('text-xs w-full jetbrains-mono bg-transparent')
+                    ln_width = max(2, len(str(len(lines))))
+                    ln_text = "\n".join(str(i+1) for i in range(len(lines)))
+                    
+                    with ui.row().classes('w-full gap-0 items-start no-wrap'):
+                        # 行番号列
+                        ui.label(ln_text).classes('line-numbers-col jetbrains-mono text-xs').style(f'width: {ln_width + 2}ch; white-space: pre;')
+                        # コード列
+                        ui.code(content, language=ext).classes('code-col flex-grow jetbrains-mono text-xs bg-transparent p-0')
             
             # プレビューダイアログを開く
             preview_dialog.open()
-            preview_scroll.scroll_to(pixels=0) # 常に上から開始
+            preview_scroll.scroll_to(pixels=0)
         except Exception as e:
             # ファイル読み込みエラーを通知
             ui.notify(f"Read Error: {e}", color='red')
