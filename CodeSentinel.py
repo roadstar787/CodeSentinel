@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.8"
+APP_VERSION = "0.3.9"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -55,7 +55,14 @@ class RAGBackend:
             check_embedding_ctx_length=False  # 埋め込みコンテキスト長のチェックを無効化
         )
         # RAGバックエンドの統計情報
-        self.stats = {"total_chunks": 0, "is_rebuilding": False, "lm_connected": False, "model": "N/A"}
+        self.stats = {
+            "total_chunks": 0, 
+            "is_rebuilding": False, 
+            "lm_connected": False, 
+            "model": "N/A",
+            "revision": "v0.3.8",
+            "last_rebuild": "Never"
+        }
 
     # LM Studioへの接続を確認し、モデル情報を取得する非同期メソッド
     async def check_lm_studio(self):
@@ -214,6 +221,7 @@ class RAGBackend:
             # ベクトルストアをローカルに保存
             self.vectorstore.save_local(self.db_path)
             self.stats["total_chunks"] = len(docs)  # チャンク総数を更新
+            self.stats["last_rebuild"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             return True, "SUCCESS"
         finally: 
             self.stats["is_rebuilding"] = False  # 再構築完了後フラグを下ろす
@@ -269,6 +277,10 @@ async def main_page():
                 width: 100%;
                 display: inline-block;
             }
+            /* ステータス画面用スタイル (rag_web_ui.py 互換) */
+            .status-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; width: 100%; }
+            .status-label { font-size: 10px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+            .status-value { font-size: 12px; color: #f1f5f9; font-family: "JetBrains Mono", monospace; font-weight: 500; }
         </style>
     ''')
 
@@ -413,18 +425,50 @@ async def main_page():
                 rebuild_btn = ui.button('REBUILD', on_click=lambda: rebuild_task()).props('flat icon=refresh').classes('w-full border border-slate-800 text-xs')
 
             # システムステータスタブの内容
-            with ui.tab_panel(tab_sts):
-                ui.label('SYSTEM').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
-                # LM Studioの接続状態インジケーター
-                with ui.row().classes('items-center gap-2 mb-2'):
-                    lm_indicator = ui.icon('circle', color='grey').classes('text-[12px]')
-                    lm_status_text = ui.label('Checking...').classes('text-[11px] font-mono text-slate-400')
-                # 現在使用中のLM Studioモデル名
-                lm_model_label = ui.label('Model: N/A').classes('text-[10px] font-mono text-slate-500 mb-4 truncate w-full')
+            with ui.tab_panel(tab_sts).classes('p-6'):
+                ui.label('SYSTEM STATUS').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
+                
+                with ui.element('div').classes('status-item'):
+                    ui.label('Revision').classes('status-label')
+                    ui.label(backend.stats["revision"]).classes('status-value text-indigo-400')
+                
+                with ui.element('div').classes('status-item'):
+                    ui.label('Vector DB').classes('status-label')
+                    status_chip = ui.label('OFFLINE').classes('px-2 py-0.5 rounded text-[10px] font-bold')
+                
+                with ui.element('div').classes('status-item'):
+                    ui.label('Total Chunks').classes('status-label')
+                    chunk_count_label = ui.label(str(backend.stats["total_chunks"])).classes('status-value transition-all')
+                
+                with ui.element('div').classes('status-item'):
+                    ui.label('Last Build').classes('status-label')
+                    last_update_label = ui.label(backend.stats["last_rebuild"]).classes('status-value')
+
+                ui.separator().classes('bg-slate-700 my-6 opacity-30')
+                
+                ui.label('SYSTEM LOAD').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
+                
+                # LM Studioの接続状態
+                with ui.element('div').classes('status-item'):
+                    ui.label('LM Studio').classes('status-label')
+                    with ui.row().classes('items-center gap-2'):
+                        lm_indicator = ui.icon('circle', color='grey').classes('text-[10px]')
+                        lm_status_text = ui.label('Checking...').classes('status-value')
+                
+                # モデル名
+                with ui.element('div').classes('status-item'):
+                    ui.label('Active Model').classes('status-label')
+                    lm_model_label = ui.label('N/A').classes('status-value truncate max-w-[120px]')
+
                 # CPU使用率表示
-                cpu_label = ui.label('CPU: 0%').classes('text-[11px] font-mono text-slate-400')
+                with ui.element('div').classes('status-item'):
+                    ui.label('CPU').classes('status-label')
+                    cpu_label = ui.label('0%').classes('status-value')
+                
                 # RAM使用率表示
-                ram_label = ui.label('RAM: 0%').classes('text-[11px] font-mono text-slate-400')
+                with ui.element('div').classes('status-item'):
+                    ui.label('RAM').classes('status-label')
+                    ram_label = ui.label('0GB').classes('status-value')
 
         # アプリケーションをシャットダウンするボタン
         ui.button('SHUTDOWN', on_click=app.shutdown).props('flat icon=power_settings_new color=red-4').classes('w-full mt-auto mb-4 px-4')
@@ -493,12 +537,22 @@ async def main_page():
 
     async def update_status_loop():
         while True:
-            cpu_label.set_text(f"CPU: {psutil.cpu_percent()}%")
-            ram_label.set_text(f"RAM: {psutil.virtual_memory().percent}%")
+            cpu_label.set_text(f"{psutil.cpu_percent()}%")
+            mem = psutil.virtual_memory()
+            ram_label.set_text(f"{mem.used // (1024**3)}GB / {mem.total // (1024**3)}GB")
+            
             connected = await backend.check_lm_studio()
             lm_indicator.props(f'color={"green" if connected else "red"}')
-            lm_status_text.set_text(f'LM Studio: {"OK" if connected else "ERR"}')
-            lm_model_label.set_text(f'Model: {backend.stats["model"]}')
+            lm_status_text.set_text(f'{"ONLINE" if connected else "OFFLINE"}')
+            lm_model_label.set_text(backend.stats["model"])
+            
+            # DB状態の更新
+            is_loaded = backend.vectorstore is not None
+            status_chip.set_text('ONLINE' if is_loaded else 'OFFLINE')
+            status_chip.classes(replace='bg-green-900/40 text-green-400' if is_loaded else 'bg-red-900/40 text-red-400')
+            chunk_count_label.set_text(str(backend.stats["total_chunks"]))
+            last_update_label.set_text(backend.stats["last_rebuild"])
+            
             await asyncio.sleep(3)
 
     async def handle_query():
@@ -658,21 +712,37 @@ Context:
         ui.notify(f"Mode changed to: {v}")
 
     async def rebuild_task():
+        if backend.stats["is_rebuilding"]: return
+        
+        # 通知の開始 (スピナー付き)
+        n = ui.notification('Rebuilding Vector DB...', spinner=True, infinite=True, position='top-right')
+        
         # ボタンをアニメーション状態に変更
         rebuild_btn.classes(add='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
         rebuild_btn.classes(remove='border-slate-800')
         rebuild_btn.set_text('BUILDING...')
         
-        # バックグラウンドで再構築を実行
-        await run.io_bound(backend.rebuild_db)
-        
-        # アニメーション状態を解除してテキストを元に戻す
-        rebuild_btn.classes(remove='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
-        rebuild_btn.classes(add='border-slate-800')
-        rebuild_btn.set_text('REBUILD')
-        
-        idx_label.set_text(f'IDX: {backend.stats["total_chunks"]}')
-        refresh_explorer()
+        try:
+            # バックグラウンドで再構築を実行
+            success, msg = await run.io_bound(backend.rebuild_db)
+            
+            # 通知の更新
+            n.dismiss()
+            if success:
+                ui.notify('Rebuild successful!', color='positive', position='top-right', icon='check_circle')
+            else:
+                ui.notify(f'Rebuild failed: {msg}', color='negative', position='top-right', icon='error')
+        except Exception as e:
+            n.dismiss()
+            ui.notify(f'System Error: {e}', color='negative', position='top-right')
+        finally:
+            # アニメーション状態を解除してテキストを元に戻す
+            rebuild_btn.classes(remove='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
+            rebuild_btn.classes(add='border-slate-800')
+            rebuild_btn.set_text('REBUILD')
+            
+            idx_label.set_text(f'IDX: {backend.stats["total_chunks"]}')
+            refresh_explorer()
 
     backend.load_db()
     
