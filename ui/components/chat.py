@@ -1,0 +1,44 @@
+import json
+from nicegui import ui
+
+def render_gap_results(chat_results, full_text, open_preview_func, target_dir):
+    if "<gaps>" not in full_text:
+        return
+    
+    try:
+        gap_json_str = full_text.split("<gaps>")[1].split("</gaps>")[0].strip()
+        gaps = json.loads(gap_json_str)
+        if gaps:
+            with chat_results:
+                ui.label('ANALYSIS RESULTS (GAPS)').classes('text-[10px] text-red-500 font-bold mt-2 tracking-widest')
+                for gap in gaps:
+                    f_path = gap.get("file", "Unknown")
+                    l_num = gap.get("line")
+                    issue = gap.get("issue", "Unknown")
+                    with ui.element('div').classes('gap-card w-full'):
+                        with ui.row().classes('items-center justify-between w-full'):
+                            ui.label(f"FILE: {f_path} (Line {l_num})" if l_num else f"FILE: {f_path}").classes('gap-file')
+                            if f_path != "Unknown":
+                                ui.button('JUMP', icon='launch', on_click=lambda e, fp=f_path, ln=l_num: open_preview_func(fp, target_dir, ln))\
+                                    .props('flat dense size=xs color=red-7').classes('text-[9px]')
+                        ui.label(issue).classes('gap-issue')
+    except Exception as e:
+        print(f"Gap Parse Error: {e}")
+
+def render_message(container, role, content, sources=None, open_preview_func=None, target_dir=None, doc_dir=None):
+    with container:
+        if role == 'user':
+            ui.label(f"Q: {content}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
+        else:
+            display_text = content.split("<gaps>")[0] if "<gaps>" in content else content
+            ui.markdown(display_text).classes('text-slate-700 text-sm p-4 w-full border-b')
+            
+            # Copy ボタン
+            ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=content: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
+                .props('flat dense color=slate-400 size=sm').classes('self-end mt-[-10px] mb-4 opacity-50 hover:opacity-100')
+            
+            if sources:
+                with ui.row().classes('gap-2 mt-1'):
+                    for p, t in sources:
+                        b_dir = target_dir if t == 'code' else doc_dir
+                        ui.button(p, on_click=lambda e, path=p, bd=b_dir: open_preview_func(path, bd)).props('outline dense size=xs').classes('text-[10px] text-indigo-500 border-indigo-200 bg-indigo-50')
