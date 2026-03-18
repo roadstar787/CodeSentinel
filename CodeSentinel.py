@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from typing import Counter
 from pathlib import Path
@@ -276,5 +277,5 @@ Context:
     refresh_chat_list()
 
 # GUIアプリの起動
-if __name__ in {"__main__", "nicegui"}:
+if __name__ in {"__main__", "__mp_main__"}:
     ui.run(title=APP_NAME, port=8080, storage_secret='codesentinel_secret')

@@ -31,7 +31,7 @@ class PreviewDialog:
         
         if total > 0:
             if query == last_q:
-                next_matches = [m for m in matches if m > last_idx]
+                next_matches = [m for m in matches if m > int(last_idx)]
                 found_idx = next_matches[0] if next_matches else matches[0]
                 match_no = matches.index(found_idx) + 1
             else:

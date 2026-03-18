@@ -62,8 +62,10 @@ class RAGBackend:
         if os.path.exists(self.db_path):
             try:
                 self.vectorstore = FAISS.load_local(self.db_path, self.embeddings, allow_dangerous_deserialization=True)
-                self.stats["total_chunks"] = self.vectorstore.index.ntotal
-                return True
+                if self.vectorstore:
+                    self.stats["total_chunks"] = self.vectorstore.index.ntotal
+                    return True
+                return False
             except: 
                 return False
         return False
@@ -172,9 +174,11 @@ class RAGBackend:
                 return False, "No documents found"
 
             self.vectorstore = FAISS.from_documents(docs, self.embeddings)
-            self.vectorstore.save_local(self.db_path)
-            self.stats["total_chunks"] = len(docs)
-            self.stats["last_rebuild"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            return True, "SUCCESS"
+            if self.vectorstore:
+                self.vectorstore.save_local(self.db_path)
+                self.stats["total_chunks"] = len(docs)
+                self.stats["last_rebuild"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                return True, "SUCCESS"
+            return False, "Failed to create vector store"
         finally: 
             self.stats["is_rebuilding"] = False
