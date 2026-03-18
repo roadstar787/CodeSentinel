@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.5"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -248,6 +248,9 @@ async def main_page():
             /* モダンチャットUI用 */
             .chat-bubble { font-family: "Inter", sans-serif; font-size: 0.95rem; line-height: 1.7; border-radius: 1.25rem; }
             .code-preview pre, .code-preview code { font-family: "JetBrains Mono", monospace !important; font-size: 13px !important; }
+            .code-preview { background-color: #0d1117 !important; border-radius: 8px; color: #e6edf3; }
+            /* Prismのデフォルトテキスト色を調整 (バックボーン) */
+            .code-preview .nicegui-code pre { background: transparent !important; margin: 0 !important; color: inherit !important; }
         </style>
     ''')
 
@@ -265,9 +268,9 @@ async def main_page():
             ui.button(icon='close', on_click=preview_dialog.close).props('flat round dense color=slate-400')
         
         # プレビューするコードを表示するスクロール可能なエリア
-        with ui.scroll_area().classes('w-full flex-grow bg-[#0d1117] code-preview') as preview_scroll:
-            # コード表示 (ui.markdownからui.codeに変更)
-            preview_code_container = ui.code('', language='text').classes('text-xs w-full jetbrains-mono')
+        with ui.scroll_area().classes('w-full flex-grow code-preview p-4') as preview_scroll:
+            # コード表示用コンテナ (動的に再生成するため)
+            preview_code_box = ui.column().classes('w-full')
 
     # プレビュー内検索の状態管理
     search_state = {'last_query': '', 'last_index': -1, 'full_content': ''}
@@ -319,17 +322,18 @@ async def main_page():
             preview_title.set_text(f"{file_path}")
             # 言語指定 (ファイル拡張子に基づいてシンタックスハイライト)
             ext = full_path.suffix.lower()[1:] or 'text'
-            # PDFやExcelはテキストとして見れない場合があるので分岐
-            if ext in {'pdf', 'xlsx', 'pptx'}:
-                preview_code_container.set_content(f"Binary file ({ext}) cannot be previewed as text.")
-                preview_code_container.language = 'text'
-            else:
-                # 行番号を手動で付与
-                lines = content.splitlines()
-                max_ln = len(str(len(lines)))
-                numbered = "\n".join(f"{str(i+1).rjust(max_ln)} | {line}" for i, line in enumerate(lines))
-                preview_code_container.set_content(numbered)
-                preview_code_container.language = ext
+            
+            preview_code_box.clear()
+            with preview_code_box:
+                # PDFやExcelはテキストとして見れない場合があるので分岐
+                if ext in {'pdf', 'xlsx', 'pptx'}:
+                    ui.label(f"Binary file ({ext}) cannot be previewed as text.").classes('text-slate-400 italic')
+                else:
+                    # 行番号を手動で付与
+                    lines = content.splitlines()
+                    max_ln = len(str(len(lines)))
+                    numbered = "\n".join(f"{str(i+1).rjust(max_ln)} | {line}" for i, line in enumerate(lines))
+                    ui.code(numbered, language=ext).classes('text-xs w-full jetbrains-mono bg-transparent')
             
             # プレビューダイアログを開く
             preview_dialog.open()
