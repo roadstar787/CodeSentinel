@@ -25,9 +25,9 @@ from langchain_community.document_loaders import (
 
 # --- システム設定 ---
 # アプリケーションの名前
-APP_NAME = "Code Sentinel"
-# アプリケーションのリビジョン（バージョン）
-REVISION = "v1.3.3"
+APP_NAME = "CodeSentinel"
+# アプリケーションのバージョン
+APP_VERSION = "0.3.0"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -346,7 +346,9 @@ async def main_page():
     with ui.header().classes('bg-white text-slate-900 p-4 border-b flex justify-between shadow-none'):
         with ui.row().classes('items-center gap-4'):
             ui.button(icon='menu', on_click=drawer.toggle).props('flat round color=slate-900')
-            ui.label(APP_NAME).classes('text-lg font-black uppercase')
+            with ui.row().classes('items-baseline gap-2'):
+                ui.label(APP_NAME).classes('text-lg font-black uppercase')
+                ui.label(f'v{APP_VERSION}').classes('text-[10px] font-mono text-slate-400')
         with ui.row().classes('items-center gap-2'):
             ui.label('MODE:').classes('text-[10px] text-slate-400')
             mode_toggle = ui.toggle({'Normal': 'Q&A', 'Gap': 'GAP'}, value=backend.mode, on_change=lambda e: change_mode(e.value)).props('dense unelevated toggle-color=indigo-600 color=slate-200 text-color=slate-600').classes('text-[10px]')
@@ -365,29 +367,42 @@ async def main_page():
             
             node = {"id": rel if path.is_file() else None, "label": path.name + hit_label, "class": "hit-file" if hits > 0 else "", "style": bg_style}
             if path.is_dir():
+                # 表示対象の拡張子 $(SUPPORTED_EXTS)
+                supported = {".py", ".cs", ".cpp", ".h", ".hpp", ".json", ".pdf", ".md", ".xlsx", ".pptx"}
                 node["children"] = [build_nodes(p, relative_to) for p in sorted(path.iterdir())
-                                    if not p.name.startswith('.') and (p.is_dir() or p.suffix in {".py", ".cs", ".cpp", ".h", ".json"})]
+                                    if not p.name.startswith('.') and (p.is_dir() or p.suffix.lower() in supported)]
                 node["icon"] = "folder"
-            else: node["icon"] = "description"
+            else:
+                ext = path.suffix.lower()
+                if ext == ".pdf": node["icon"] = "picture_as_pdf"
+                elif ext in {".xlsx", ".xls"}: node["icon"] = "table_view"
+                elif ext == ".pptx": node["icon"] = "present_to_all"
+                elif ext == ".md": node["icon"] = "article"
+                else: node["icon"] = "description"
             return node
         try:
             # Code Directory
             root = Path(backend.target_dir)
             if root.exists():
-                tree_data = [build_nodes(root, root)]
+                # ルートフォルダ自体ではなく、その中身をトップレベルにする
+                supported = {".py", ".cs", ".cpp", ".h", ".hpp", ".json"}
+                tree_data = [build_nodes(p, root) for p in sorted(root.iterdir())
+                             if not p.name.startswith('.') and (p.is_dir() or p.suffix.lower() in supported)]
                 with tree_container:
                     ui.label('CODE').classes('text-[9px] text-slate-500 mt-2')
-                    t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.target_dir)).props('dark dense')
+                    t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.target_dir)).props('dark dense expand-all')
                     t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
             
             # Document Directory
             if backend.doc_dir:
                 doc_root = Path(backend.doc_dir)
                 if doc_root.exists():
-                    doc_tree_data = [build_nodes(doc_root, doc_root)]
+                    supported_docs = {".pdf", ".md", ".xlsx", ".pptx"}
+                    doc_tree_data = [build_nodes(p, doc_root) for p in sorted(doc_root.iterdir())
+                                     if not p.name.startswith('.') and (p.is_dir() or p.suffix.lower() in supported_docs)]
                     with tree_container:
                         ui.label('DOCS').classes('text-[9px] text-slate-500 mt-2')
-                        t_doc = ui.tree(nodes=doc_tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.doc_dir)).props('dark dense')
+                        t_doc = ui.tree(nodes=doc_tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.doc_dir)).props('dark dense expand-all')
                         t_doc.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
         except Exception as e:
             print(f"Explorer Refresh Error: {e}")
@@ -465,6 +480,11 @@ Context:
                 md.set_content(full)
                 ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
             
+            # コピーボタンを追加
+            with chat_results:
+                ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=full: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
+                    .props('flat dense color=slate-400 size=sm').classes('self-end mt-[-10px] mb-4 opacity-50 hover:opacity-100')
+            
             # 履歴に追加して保存
             session['history'].append({"role": "ai", "content": full, "sources": unique_hits})
             title = query[:20] + ("..." if len(query) > 20 else "")
@@ -507,6 +527,10 @@ Context:
                     ui.label(f"Q: {msg['content']}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
                 else:
                     ui.markdown(msg['content']).classes('text-slate-700 text-sm p-4 w-full border-b')
+                    # 保存された履歴からもコピーボタンを表示
+                    ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=msg['content']: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
+                        .props('flat dense color=slate-400 size=sm').classes('self-end mt-[-10px] mb-4 opacity-50 hover:opacity-100')
+                    
                     if msg.get('sources'):
                         with ui.row().classes('gap-2 mt-1'):
                             for p, t in msg['sources']:
