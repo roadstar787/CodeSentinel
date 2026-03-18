@@ -27,7 +27,7 @@ from langchain_community.document_loaders import (
 # アプリケーションの名前
 APP_NAME = "CodeSentinel"
 # アプリケーションのバージョン
-APP_VERSION = "0.3.7"
+APP_VERSION = "0.3.8"
 
 # RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
 class RAGBackend:
@@ -264,6 +264,11 @@ async def main_page():
                 padding-left: 12px !important;
                 line-height: 20px; /* 重要: 行番号と合わせる */
             }
+            .search-highlight-line {
+                background-color: rgba(96, 165, 250, 0.2) !important;
+                width: 100%;
+                display: inline-block;
+            }
         </style>
     ''')
 
@@ -289,7 +294,7 @@ async def main_page():
     search_state = {'last_query': '', 'last_index': -1, 'full_content': ''}
 
     def search_in_preview():
-        query = str(preview_search.value or "")
+        query = str(preview_search.value or "").strip()
         if not query: return
         content = str(search_state.get('full_content', ""))
         if not content: return
@@ -300,20 +305,30 @@ async def main_page():
         last_q = str(search_state.get('last_query', ""))
         start_idx = last_idx + 1 if query == last_q else 0
         
-        found = False
-        for i in range(len(lines)):
-            idx = (start_idx + i) % len(lines)
-            if query.lower() in lines[idx].lower():
-                # ヒット！スクロール実行 (1行あたり約20pxの概算)
-                line_height = 20 
-                preview_scroll.scroll_to(pixels=idx * line_height)
-                search_state['last_index'] = idx
-                search_state['last_query'] = query
-                ui.notify(f"Found on line {idx + 1}", color='indigo', pos='top')
-                found = True
-                break
-        if not found:
-            ui.notify("Not found", color='orange', pos='top')
+        found_idx = -1
+        matches = [idx for idx, line in enumerate(lines) if query.lower() in line.lower()]
+        total = len(matches)
+        
+        if total > 0:
+            # 次のインデックスを計算
+            if query == last_q:
+                # すでにヒットしている場合、次のマッチを探す
+                next_matches = [m for m in matches if m > last_idx]
+                found_idx = next_matches[0] if next_matches else matches[0]
+                match_no = matches.index(found_idx) + 1
+            else:
+                found_idx = matches[0]
+                match_no = 1
+
+            # ヒット！スクロール実行
+            line_height = 20 
+            preview_scroll.scroll_to(pixels=found_idx * line_height)
+            
+            search_state['last_index'] = found_idx
+            search_state['last_query'] = query
+            ui.notify(f"Match {match_no}/{total} (Line {found_idx + 1})", color='indigo', pos='top', duration=1000)
+        else:
+            ui.notify("No matches found", color='orange', pos='top')
             search_state['last_index'] = -1
 
     # ファイルプレビューを開く関数
