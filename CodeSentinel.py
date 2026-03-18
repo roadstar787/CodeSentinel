@@ -12,7 +12,13 @@ from langchain_core.output_parsers import StrOutputParser  # LangChain出力パ�
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings  # OpenAIチャットモデルと埋め込み（LM Studio互換）
 from langchain_community.vectorstores import FAISS  # FAISSベクトルストア
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # テキスト分割
-from langchain_community.document_loaders import TextLoader  # テキストファイルローダー
+from langchain_community.document_loaders import (
+    TextLoader, 
+    PyPDFLoader, 
+    UnstructuredMarkdownLoader, 
+    UnstructuredExcelLoader, 
+    UnstructuredPowerPointLoader
+)  # 各種ファイルローダー
 
 # --- システム設定 ---
 # アプリケーションの名前
@@ -26,10 +32,14 @@ class RAGBackend:
     def __init__(self):
         # ドキュメントの検索対象ディレクトリ
         self.target_dir = r"E:\sample\json"
+        # 仕様書などのドキュメントディレクトリ
+        self.doc_dir = r""
         # FAISSインデックスの保存パス
         self.db_path = "faiss_index_code"
         # LM StudioのAPIエンドポイントURL
         self.lm_studio_url = "http://localhost:1234/v1"
+        # 動作モード (Normal or GapAnalysis)
+        self.mode = "Normal"
         # ベクトルストアのインスタンス
         self.vectorstore = None
         # テキスト埋め込みモデルの設定
@@ -89,30 +99,60 @@ class RAGBackend:
     def rebuild_db(self):
         self.stats["is_rebuilding"] = True  # 再構築中フラグを立てる
         docs = []
-        # コードに適したチャンク分割のパラメーターを設定（rag_web_ui準拠）
+        
+        # チャンク分割設定
         code_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1200,
-            chunk_overlap=200,
+            chunk_size=1200, chunk_overlap=200,
             separators=["\nclass ", "\ndef ", "\nvoid ", "\nint ", "\nstatic ", "\n\n", "\n", " ", ""]
         )
-        # 対象とするファイル拡張子
-        extensions = {".hpp", ".h", ".cpp", ".py", ".json", ".cs"}
+        doc_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+
+        # 処理対象の設定
+        targets = [
+            {"path": self.target_dir, "type": "code", "exts": {".hpp", ".h", ".cpp", ".py", ".json", ".cs"}},
+            {"path": self.doc_dir, "type": "document", "exts": {".pdf", ".md", ".xlsx", ".pptx"}}
+        ]
+
         try:
-            path_obj = Path(self.target_dir)
-            # 対象ディレクトリ内のファイルを再帰的に検索し、指定された拡張子を持つファイルのみを抽出
-            files = [p for p in path_obj.rglob('*') if p.suffix in extensions and ".venv" not in p.parts and ".git" not in p.parts]
-            for p in files:
-                try:
-                    # テキストローダーでファイルを読み込み
-                    loader = TextLoader(str(p), encoding="utf-8")
-                    raw = loader.load()
-                    # メタデータに相対パスを追加
-                    for d in raw: d.metadata["source"] = str(p.relative_to(self.target_dir))
-                    # テキストをチャンクに分割し、ドキュメントリストに追加
-                    docs.extend(code_splitter.split_documents(raw))
-                except: 
-                    # ファイル読み込みエラーはスキップ
-                    continue
+            for target in targets:
+                path_str = str(target["path"])
+                if not path_str: continue
+                base_path = Path(path_str)
+                if not base_path.exists(): continue
+                
+                # ファイルを再帰的に検索
+                files = [p for p in base_path.rglob('*') if p.suffix.lower() in target["exts"] and ".venv" not in p.parts and ".git" not in p.parts]
+                
+                for p in files:
+                    try:
+                        ext = p.suffix.lower()
+                        if ext in {".py", ".cpp", ".h", ".hpp", ".cs", ".json"}:
+                            loader = TextLoader(str(p), encoding="utf-8")
+                        elif ext == ".pdf":
+                            loader = PyPDFLoader(str(p))
+                        elif ext == ".md":
+                            loader = UnstructuredMarkdownLoader(str(p))
+                        elif ext == ".xlsx":
+                            loader = UnstructuredExcelLoader(str(p))
+                        elif ext == ".pptx":
+                            loader = UnstructuredPowerPointLoader(str(p))
+                        else:
+                            continue
+
+                        raw = loader.load()
+                        for d in raw:
+                            d.metadata["source"] = str(p.relative_to(base_path))
+                            d.metadata["type"] = target["type"] # 区分けを追加
+                        
+                        splitter = code_splitter if target["type"] == "code" else doc_splitter
+                        docs.extend(splitter.split_documents(raw))
+                    except Exception as e:
+                        print(f"Error loading {p}: {e}")
+                        continue
+            
+            if not docs:
+                return False, "No documents found"
+
             # FAISSベクトルストアをドキュメントから構築
             self.vectorstore = FAISS.from_documents(docs, self.embeddings)
             # ベクトルストアをローカルに保存
@@ -129,6 +169,8 @@ backend = RAGBackend()
 async def main_page():
     # ユーザー設定からターゲットディレクトリをロード。設定がなければRAGBackendのデフォルトを使用。
     backend.target_dir = app.storage.user.get('target_dir', backend.target_dir)
+    backend.doc_dir = app.storage.user.get('doc_dir', backend.doc_dir)
+    backend.mode = app.storage.user.get('mode', 'Normal')
     
     # 検索状態の管理（ヒット数など）
     state = {'hit_counts': Counter()}
@@ -161,11 +203,13 @@ async def main_page():
         ui.button('CLOSE', on_click=preview_dialog.close).props('flat').classes('ml-auto')
 
     # ファイルプレビューを開く関数
-    def open_preview(file_path):
+    def open_preview(file_path, base_dir=None):
         # ファイルパスが指定されていなければ何もしない
         if not file_path: return
-        # ターゲットディレクトリとファイルパスを結合してフルパスを作成
-        full_path = Path(backend.target_dir) / file_path
+        # 基準ディレクトリを決定
+        base = base_dir if base_dir else backend.target_dir
+        # フルパスを作成
+        full_path = Path(base) / file_path
         # フルパスがファイルでなければ何もしない
         if not full_path.is_file(): return
         try:
@@ -204,9 +248,11 @@ async def main_page():
             with ui.tab_panel(tab_set):
                 ui.label('CONFIG').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
                 # ターゲットディレクトリのパス入力フィールド
-                path_input = ui.input('Path', value=backend.target_dir).props('dark dense outlined').classes('w-full mb-4')
+                path_input = ui.input('Code Path', value=backend.target_dir).props('dark dense outlined').classes('w-full mb-2')
+                # ドキュメントディレクトリのパス入力フィールド
+                doc_path_input = ui.input('Doc Path', value=backend.doc_dir).props('dark dense outlined').classes('w-full mb-4')
                 # パスを保存するボタン
-                ui.button('SAVE PATH', on_click=lambda: save_settings(path_input.value)).props('flat border').classes('w-full text-xs mb-4')
+                ui.button('SAVE PATHS', on_click=lambda: save_settings(path_input.value, doc_path_input.value)).props('flat border').classes('w-full text-xs mb-4')
                 # ベクトルストアを再構築するボタン
                 rebuild_btn = ui.button('REBUILD', on_click=lambda: rebuild_task()).props('flat icon=refresh').classes('w-full border border-slate-800 text-xs')
 
@@ -232,7 +278,10 @@ async def main_page():
         with ui.row().classes('items-center gap-4'):
             ui.button(icon='menu', on_click=drawer.toggle).props('flat round color=slate-900')
             ui.label(APP_NAME).classes('text-lg font-black uppercase')
-        idx_label = ui.label(f'IDX: {backend.stats["total_chunks"]}').classes('text-[10px] font-mono text-slate-500')
+        with ui.row().classes('items-center gap-2'):
+            ui.label('MODE:').classes('text-[10px] text-slate-400')
+            mode_toggle = ui.toggle({'Normal': 'Q&A', 'Gap': 'GAP'}, value=backend.mode, on_change=lambda e: change_mode(e.value)).props('dense unelevated toggle-color=indigo-600 color=slate-200 text-color=slate-600').classes('text-[10px]')
+            idx_label = ui.label(f'IDX: {backend.stats["total_chunks"]}').classes('text-[10px] font-mono text-slate-500')
 
     chat_results = ui.column().classes('w-full max-w-4xl mx-auto p-8 pb-40 gap-4')
 
@@ -253,13 +302,26 @@ async def main_page():
             else: node["icon"] = "description"
             return node
         try:
+            # Code Directory
             root = Path(backend.target_dir)
-            if not root.exists(): return
-            tree_data = [build_nodes(root, root)]
-            with tree_container:
-                t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value)).props('dark dense')
-                t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
-        except: pass
+            if root.exists():
+                tree_data = [build_nodes(root, root)]
+                with tree_container:
+                    ui.label('CODE').classes('text-[9px] text-slate-500 mt-2')
+                    t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.target_dir)).props('dark dense')
+                    t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
+            
+            # Document Directory
+            if backend.doc_dir:
+                doc_root = Path(backend.doc_dir)
+                if doc_root.exists():
+                    doc_tree_data = [build_nodes(doc_root, doc_root)]
+                    with tree_container:
+                        ui.label('DOCS').classes('text-[9px] text-slate-500 mt-2')
+                        t_doc = ui.tree(nodes=doc_tree_data, label_key='label', on_select=lambda e: open_preview(e.value, backend.doc_dir)).props('dark dense')
+                        t_doc.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
+        except Exception as e:
+            print(f"Explorer Refresh Error: {e}")
 
     async def update_status_loop():
         while True:
@@ -291,14 +353,40 @@ async def main_page():
             state['hit_counts'] = Counter(hits)
             refresh_explorer()
             
-            unique_hits = list(set(hits))
+            unique_hits = []
+            seen = set()
+            for d in docs:
+                pair = (d.metadata['source'], d.metadata.get('type', 'code'))
+                if pair not in seen:
+                    unique_hits.append(pair)
+                    seen.add(pair)
+
             with source_row:
-                for p in unique_hits:
-                    ui.button(p, on_click=lambda e, path=p: open_preview(path)).props('outline dense size=xs').classes('text-[10px] text-indigo-500 border-indigo-200 bg-indigo-50')
+                for p, t in unique_hits:
+                    b_dir = backend.target_dir if t == 'code' else backend.doc_dir
+                    ui.button(p, on_click=lambda e, path=p, bd=b_dir: open_preview(path, bd)).props('outline dense size=xs').classes('text-[10px] text-indigo-500 border-indigo-200 bg-indigo-50')
             
-            context = "\n".join([f"FILE: {d.metadata['source']}\n{d.page_content}" for d in docs])
+            context = "\n".join([f"TYPE: {d.metadata.get('type','unknown')}\nFILE: {d.metadata['source']}\n{d.page_content}" for d in docs])
             llm = ChatOpenAI(base_url=backend.lm_studio_url, api_key="lm-studio", temperature=0.1, streaming=True)
-            chain = ChatPromptTemplate.from_template("回答は日本語で行ってください。\n\nContext:\n{c}\n\nQ: {i}") | llm | StrOutputParser()
+            
+            if backend.mode == 'Gap':
+                prompt = """あなたは優秀なソフトウェアエンジニア兼テクニカルドキュメントアナリストです。
+提供されたコンテキストには、仕様書などのドキュメント(TYPE: document)と、ソースコード(TYPE: code)の両方が含まれている可能性があります。
+
+Q: {i}
+
+【指示】
+1. 仕様書(document)に記載されている内容と、実際のソースコード(code)を比較してください。
+2. 仕様にあるが実装されていない項目、または仕様と実装が矛盾している箇所を特定してください。
+3. 回答は日本語で、具体的なファイル名や仕様書の内容を引用して論理的に説明してください。
+
+Context:
+{c}
+"""
+            else:
+                prompt = "回答は日本語で行ってください。\n\nContext:\n{c}\n\nQ: {i}"
+
+            chain = ChatPromptTemplate.from_template(prompt) | llm | StrOutputParser()
             full = ""
             async for chunk in chain.astream({"c": context, "i": query}):
                 full += chunk
@@ -313,10 +401,17 @@ async def main_page():
             input_field = ui.textarea(placeholder='Ask...').classes('flex-grow text-sm').props('borderless autogrow')
             ui.button(on_click=handle_query).props('flat icon=send color=indigo-600')
 
-    def save_settings(v):
-        app.storage.user['target_dir'] = v
-        backend.target_dir = v
+    def save_settings(v_target, v_doc):
+        app.storage.user['target_dir'] = v_target
+        app.storage.user['doc_dir'] = v_doc
+        backend.target_dir = v_target
+        backend.doc_dir = v_doc
         refresh_explorer()
+
+    def change_mode(v):
+        app.storage.user['mode'] = v
+        backend.mode = v
+        ui.notify(f"Mode changed to: {v}")
 
     async def rebuild_task():
         # ボタンをアニメーション状態に変更
