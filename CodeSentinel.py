@@ -52,11 +52,11 @@ async def main_page():
     # プレビュー用ダイアログの初期化
     previewer = PreviewDialog()
     
-    def open_preview_bridge(rel_path, base_dir, line=None):
+    def open_preview_bridge(rel_path, base_dir, line=None, fix_code=None):
         """パスを解決してプレビューアを呼び出すためのブリッジ関数。"""
         if not rel_path: return
         full = Path(base_dir) / rel_path
-        previewer.open(full, rel_path, line)
+        previewer.open(full, rel_path, line, fix_code)
 
     # --- 左サイドバー（ドロワー）: 明示的に開いた状態(value=True)に設定 ---
     with ui.left_drawer(value=True, fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
@@ -206,7 +206,13 @@ async def main_page():
             
             # コンテキスト構築
             context = "\n".join([f"TYPE: {d.metadata.get('type','unknown')}\nFILE: {d.metadata['source']}\n{d.page_content}" for d in docs])
-            llm = ChatOpenAI(base_url=backend.lm_studio_url, api_key="lm-studio", temperature=0.1, streaming=True)
+            llm = ChatOpenAI(
+                base_url=backend.lm_studio_url, 
+                api_key="lm-studio", 
+                temperature=0.1, 
+                streaming=True,
+                max_tokens=4096  # 応答が途切れないよう十分に大きく確保
+            )
             
             # プロンプトの構築（モードに応じて変更）
             prompt_str = """あなたは優秀なソフトウェアエンジニア兼テクニカルドキュメントアナリストです。
@@ -217,13 +223,13 @@ Q: {i}
 【回答ガイドライン】
 1. 仕様書(document)に記載されている内容と、実際のソースコード(code)を網羅的に比較してください。
 2. 仕様にあるが実装されていない項目、または仕様と実装が矛盾・乖離している箇所を特定してください。
-3. 回答は日本語で、具体的なファイル名や仕様（章節号など）を正確に引用して説明してください。
+3. 回答は日本語で簡潔に行い、具体的なファイル名や仕様（章節号など）を正確に引用してください。
 
 【重要：構造化データの出力】
 回答の最後に、分析結果の要約を JSON 形式で `<gaps>` タグで囲んで **必ず** 含めてください。
 形式:
 <gaps>
-[ {{"file": "ファイル名", "line": 行番号またはnull, "issue": "乖離・矛盾の内容"}} ]
+[ {{"file": "ファイル名", "line": 行番号またはnull, "issue": "乖離・矛盾の内容", "corrected_code": "修正後のコードスニペット"}} ]
 </gaps>
 
 Context:

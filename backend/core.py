@@ -17,7 +17,7 @@ from langchain_community.document_loaders import (
 
 # --- システム設定 ---
 APP_NAME = "CodeSentinel"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 class RAGBackend:
     """
@@ -49,7 +49,7 @@ class RAGBackend:
             "is_rebuilding": False, 
             "lm_connected": False, 
             "model": "N/A",
-            "revision": "v0.5.2",
+            "revision": f"v{APP_VERSION}",
             "last_rebuild": "Never"
         }
 

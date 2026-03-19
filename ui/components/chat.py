@@ -25,10 +25,18 @@ def render_gap_results(chat_results, full_text, open_preview_func, target_dir):
                     with ui.element('div').classes('gap-card w-full'):
                         with ui.row().classes('items-center justify-between w-full'):
                             ui.label(f"FILE: {f_path} (Line {l_num})" if l_num else f"FILE: {f_path}").classes('gap-file')
-                            # プレビューアで該当行へジャンプするためのボタン
-                            if f_path != "Unknown":
-                                ui.button('JUMP', icon='launch', on_click=lambda e, fp=f_path, ln=l_num: open_preview_func(fp, target_dir, ln))\
-                                    .props('flat dense size=xs color=red-7').classes('text-[9px]')
+                            with ui.row().classes('gap-1'):
+                                # 修正案がある場合のボタン
+                                fix_code = gap.get("corrected_code")
+                                if fix_code:
+                                    ui.button(icon='content_copy', on_click=lambda e, fc=fix_code: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(fc)})'))\
+                                        .props('flat dense size=xs color=slate-400').classes('text-[9px]')
+                                    ui.button('FIX', icon='auto_fix_high', on_click=lambda e, fp=f_path, ln=l_num, fc=fix_code: open_preview_func(fp, target_dir, ln, fc))\
+                                        .props('flat dense size=xs color=green-7').classes('text-[9px]')
+                                # プレビューアで該当行へジャンプするためのボタン
+                                if f_path != "Unknown":
+                                    ui.button('JUMP', icon='launch', on_click=lambda e, fp=f_path, ln=l_num: open_preview_func(fp, target_dir, ln))\
+                                        .props('flat dense size=xs color=red-7').classes('text-[9px]')
                         ui.label(issue).classes('gap-issue')
     except Exception as e:
         print(f"Gap Parse Error: {e}")
@@ -46,6 +54,9 @@ def render_message(container, role, content, sources=None, open_preview_func=Non
             # AI回答（<gaps>タグは除外してメインテキストのみ表示）
             display_text = content.split("<gaps>")[0] if "<gaps>" in content else content
             ui.markdown(display_text).classes('text-slate-700 text-sm p-4 w-full border-b')
+            
+            # Gap分析の結果があれば描画
+            render_gap_results(container, content, open_preview_func, target_dir)
             
             # クリップボードへのコピー機能
             ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=content: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \

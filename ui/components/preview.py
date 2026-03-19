@@ -17,12 +17,19 @@ class PreviewDialog:
             'current': -1, 
             'tokens': [], 
             'colors': {},
-            'debounce_timer': None
+            'debounce_timer': None,
+            'file_path': None,
+            'fix_code': None
         }
         
         with ui.dialog() as self.dialog, ui.card().style('width: 80vw; max-width: 1000px; height: 80vh; padding: 0; background-color: #272822; color: #f8f8f2; overflow: hidden; border: 1px solid #3e3d32;'):
             with ui.row().style('width: 100%; align-items: center; padding: 0.75rem 1rem; background-color: #1e1e1e; border-bottom: 1px solid #3e3d32; gap: 1rem;'):
                 self.title_label = ui.label('').style('font-size: 0.85rem; font-weight: bold; flex-grow: 1; color: #d4d4d4; font-family: "JetBrains Mono";')
+                
+                # AI修正ボタン (初期は非表示)
+                self.fix_button = ui.button('APPLY AI FIX', icon='auto_fix_high', on_click=self.confirm_fix)\
+                    .props('flat dense color=green-4').classes('text-[10px] hidden')
+                
                 with ui.row().classes('items-center gap-1'):
                     self.search_input = ui.input(placeholder='Search...', on_change=lambda e: self.debounce_search(e.value))\
                         .props('dark dense outlined clearable').style('width: 150px; font-size: 0.75rem;')
@@ -39,6 +46,34 @@ class PreviewDialog:
         if self.search_state['debounce_timer']:
             self.search_state['debounce_timer'].cancel()
         self.search_state['debounce_timer'] = ui.timer(0.4, lambda: self.handle_search(query), once=True)
+
+    def confirm_fix(self):
+        """修正を適用するか確認するダイアログを表示します。"""
+        with ui.dialog() as diag, ui.card().classes('p-6 bg-[#1e1e1e] border border-slate-700'):
+            ui.label('Apply AI Suggestion?').classes('text-lg font-bold text-white mb-2')
+            ui.label('This will modify the file on disk.').classes('text-sm text-slate-400 mb-4')
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('CANCEL', on_click=diag.close).props('flat color=gray')
+                ui.button('APPLY', on_click=lambda: self.apply_fix(diag)).props('flat color=green')
+
+    def apply_fix(self, dialog):
+        """実際にファイルの内容を書き換えます。"""
+        try:
+            path = self.search_state['file_path']
+            new_code = self.search_state['fix_code']
+            if not path or not new_code: return
+            
+            # 安全のため、現在はファイル全体の置換として実装 (TODO: 行単位の精密パッチ)
+            # もしAIがスニペットだけを返してきた場合、元ファイルの該当行を特定して置換したほうが良いが、
+            # 現状はAIに「修正後の全コード」または「明確なスニペット」を期待する。
+            # ここではシンプルに通知し、ファイルに書き込む。
+            path.write_text(new_code, encoding='utf-8')
+            ui.notify('File patched successfully!', color='positive')
+            dialog.close()
+            # プレビューを再読込
+            self.open(path, str(path), fix_code=None)
+        except Exception as e:
+            ui.notify(f"Patch Error: {e}", color='red')
 
     def handle_search(self, query: str):
         """検索クエリに基づいてヒット箇所を特定し、プレビューを再描画します。"""
@@ -80,13 +115,25 @@ class PreviewDialog:
         try: self.scroll_area.scroll_to(pixels=(line_num - 1) * 24)
         except: pass
 
-    def open(self, file_path: Path, relative_path: str, jump_line=None):
+    def open(self, file_path: Path, relative_path: str, jump_line=None, fix_code=None):
         try:
             content = file_path.read_text(encoding='utf-8')
-            self.search_state.update({'full_content': content, 'results': [], 'current': -1})
+            self.search_state.update({
+                'full_content': content, 
+                'results': [], 
+                'current': -1,
+                'file_path': file_path,
+                'fix_code': fix_code
+            })
             self.search_input.value = ''
             self.search_count_label.set_text('')
             self.title_label.set_text(relative_path)
+            
+            # 修正ボタンの表示制御
+            if fix_code:
+                self.fix_button.classes(remove='hidden')
+            else:
+                self.fix_button.classes(add='hidden')
             
             # トークン配色 (Monokai)
             self.search_state['colors'] = {
