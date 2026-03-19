@@ -17,7 +17,7 @@ from langchain_community.document_loaders import (
 
 # --- システム設定 ---
 APP_NAME = "CodeSentinel"
-APP_VERSION = "0.6.1"
+APP_VERSION = "1.4.0"
 
 class RAGBackend:
     """

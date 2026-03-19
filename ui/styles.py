@@ -1,55 +1,18 @@
 APP_CSS = '''
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
-        /* UI全体のスタイル定義 */
+        .jetbrains-mono { font-family: 'JetBrains Mono', monospace !important; }
         .hit-file { font-weight: bold; }
-        /* 再構築中のアニメーション */
         .rebuild-active { animation: pulse 1.5s infinite; color: #fbbf24 !important; border-color: #fbbf24 !important; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         
-        /* チャットUI */
-        .chat-bubble { font-family: "Inter", sans-serif; font-size: 0.95rem; line-height: 1.7; border-radius: 1.25rem; }
-        
-        /* コードプレビューア */
-        .code-preview { background-color: #0d1117 !important; border-radius: 8px; color: #e6edf3; }
-        .code-preview pre, .code-preview code { font-family: "JetBrains Mono", monospace !important; font-size: 13px !important; }
-        .code-preview .nicegui-code { padding: 0 !important; background: transparent !important; }
-        .code-preview .nicegui-code pre { background: transparent !important; margin: 0 !important; padding: 0 !important; color: inherit !important; overflow: visible !important; }
-        
-        /* 行番号表示列 */
-        .line-numbers-col { 
-            border-right: 1px solid #30363d; 
-            color: #6e7681; 
-            text-align: right; 
-            padding-right: 12px !important; 
-            user-select: none;
-            line-height: 20px;
-        }
-        .code-col {
-            padding-left: 12px !important;
-            line-height: 20px;
-        }
-        /* 検索ヒット時のハイライト */
-        .search-highlight-line {
-            background-color: rgba(96, 165, 250, 0.2) !important;
-            width: 100%;
-            display: inline-block;
-        }
-        
-        /* ステータス画面用 */
-        .status-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; width: 100%; }
+        /* Status Screen */
+        .status-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; width: 100%; border-bottom: 1px solid #2d3748; padding-bottom: 4px; }
         .status-label { font-size: 10px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-        .status-value { font-size: 12px; color: #f1f5f9; font-family: "JetBrains Mono", monospace; font-weight: 500; }
+        .status-value { font-size: 11px; color: #f1f5f9; font-family: "JetBrains Mono", monospace; font-weight: 500; }
         
-        /* Gap Analysis(差分分析) 警告カード */
+        /* Gap Analysis Cards */
         .gap-card { 
-            border-left: 4px solid #f87171; 
-            background: #fef2f2; 
-            padding: 12px; 
-            border-radius: 8px; 
-            margin-top: 8px;
+            border-left: 4px solid #f87171; background: #fef2f2; padding: 12px; border-radius: 8px; margin-top: 8px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         .gap-file { font-size: 0.75rem; font-weight: bold; color: #b91c1c; margin-bottom: 4px; }

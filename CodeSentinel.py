@@ -58,8 +58,8 @@ async def main_page():
         full = Path(base_dir) / rel_path
         previewer.open(full, rel_path, line)
 
-    # --- 左サイドバー（ドロワー） ---
-    with ui.left_drawer(fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
+    # --- 左サイドバー（ドロワー）: 明示的に開いた状態(value=True)に設定 ---
+    with ui.left_drawer(value=True, fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
         with ui.tabs().classes('w-full text-slate-500') as tabs:
             tab_exp = ui.tab('EXP', icon='account_tree')     # ファイルエクスプローラー
             tab_cht = ui.tab('CHATS', icon='chat')           # チャット履歴

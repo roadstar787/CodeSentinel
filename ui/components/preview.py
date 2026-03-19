@@ -1,96 +1,165 @@
 from pathlib import Path
+import re
 from nicegui import ui
+from pygments import highlight
+from pygments.lexers import get_lexer_for_filename, TextLexer, guess_lexer
+from pygments.token import Token
 
 class PreviewDialog:
     """
     ファイル内容をプレビュー表示するためのダイアログ管理クラス。
-    シンタックスハイライト、行番号表示、全文検索、特定行へのジャンプ機能を備えています。
+    Nativeコンポーネントのみを使用し、ブラウザの制限(CSS剥離)に影響されない表示を実現します。 (v1.4.5 - Highlight)
     """
     def __init__(self):
-        # 検索状態の管理
-        self.search_state = {'last_query': '', 'last_index': -1, 'full_content': ''}
+        self.search_state = {
+            'full_content': '', 
+            'results': [], 
+            'current': -1, 
+            'tokens': [], 
+            'colors': {},
+            'debounce_timer': None
+        }
         
-        with ui.dialog() as self.dialog, ui.card().classes('w-[80vw] max-w-4xl h-[80vh] p-0'):
-            # ヘッダー部：ファイル名表示と検索ボックス
-            with ui.row().classes('w-full items-center p-4 bg-slate-50 border-b gap-4'):
-                self.title_label = ui.label('').classes('text-sm font-bold flex-grow text-slate-700')
-                self.search_input = ui.input(placeholder='Search...').props('dense outlined clearable').classes('w-48 text-xs')
-                self.search_input.on('keydown.enter', self.search_in_preview)
-                ui.button(icon='search', on_click=self.search_in_preview).props('flat round dense color=slate-400')
-                ui.button(icon='close', on_click=self.dialog.close).props('flat round dense color=slate-400')
+        with ui.dialog() as self.dialog, ui.card().style('width: 80vw; max-width: 1000px; height: 80vh; padding: 0; background-color: #272822; color: #f8f8f2; overflow: hidden; border: 1px solid #3e3d32;'):
+            with ui.row().style('width: 100%; align-items: center; padding: 0.75rem 1rem; background-color: #1e1e1e; border-bottom: 1px solid #3e3d32; gap: 1rem;'):
+                self.title_label = ui.label('').style('font-size: 0.85rem; font-weight: bold; flex-grow: 1; color: #d4d4d4; font-family: "JetBrains Mono";')
+                with ui.row().classes('items-center gap-1'):
+                    self.search_input = ui.input(placeholder='Search...', on_change=lambda e: self.debounce_search(e.value))\
+                        .props('dark dense outlined clearable').style('width: 150px; font-size: 0.75rem;')
+                    self.search_count_label = ui.label('').classes('text-[10px] text-slate-500 w-12 text-center')
+                    ui.button(icon='keyboard_arrow_up', on_click=lambda: self.jump_to_match(-1)).props('flat round dense color=gray').classes('text-slate-400')
+                    ui.button(icon='keyboard_arrow_down', on_click=lambda: self.jump_to_match(1)).props('flat round dense color=gray').classes('text-slate-400')
+                ui.button(icon='close', on_click=self.dialog.close).props('flat round dense color=gray')
             
-            # コンテンツ部：スクロール領域
-            with ui.scroll_area().classes('w-full flex-grow code-preview p-4') as self.scroll_area:
-                self.code_container = ui.column().classes('w-full')
+            with ui.scroll_area().style('width: 100%; flex-grow: 1; padding: 1rem; background-color: #272822;') as self.scroll_area:
+                self.code_container = ui.column().style('min-width: max-content; width: 100%; gap: 0;')
 
-    def search_in_preview(self):
-        """プレビュー内のテキストを検索し、該当箇所へスクロールします。"""
-        query = str(self.search_input.value or "").strip()
-        if not query: return
-        content = self.search_state.get('full_content', "")
-        if not content: return
+    def debounce_search(self, query: str):
+        """検索処理の実行をデバウンス（遅延実行）します。"""
+        if self.search_state['debounce_timer']:
+            self.search_state['debounce_timer'].cancel()
+        self.search_state['debounce_timer'] = ui.timer(0.4, lambda: self.handle_search(query), once=True)
+
+    def handle_search(self, query: str):
+        """検索クエリに基づいてヒット箇所を特定し、プレビューを再描画します。"""
+        content = self.search_state['full_content']
+        if not query or len(query) < 2:
+            self.search_state['results'] = []
+            self.search_state['current'] = -1
+            self.search_count_label.set_text('')
+            self.render_lines()
+            return
+
         lines = content.splitlines()
+        results = [i + 1 for i, line in enumerate(lines) if query.lower() in line.lower()]
         
-        last_idx = self.search_state.get('last_index', -1)
-        last_q = self.search_state.get('last_query', "")
-        
-        # ヒットする行のインデックスをリスト化
-        matches = [idx for idx, line in enumerate(lines) if query.lower() in line.lower()]
-        total = len(matches)
-        
-        if total > 0:
-            # 次の候補を探す(インクリメンタル検索)
-            if query == last_q:
-                next_matches = [m for m in matches if m > int(last_idx)]
-                found_idx = next_matches[0] if next_matches else matches[0]
-                match_no = matches.index(found_idx) + 1
-            else:
-                found_idx = matches[0]
-                match_no = 1
+        self.search_state['results'] = results
+        self.search_state['current'] = 0 if results else -1
+        self.update_search_ui()
+        self.render_lines(query=query, active_line=results[0] if results else None)
+        if results: self.scroll_to_line(results[0])
 
-            # ヒットした行へスクロール
-            self.scroll_area.scroll_to(pixels=found_idx * 20)
-            self.search_state['last_index'] = found_idx
-            self.search_state['last_query'] = query
-            ui.notify(f"Match {match_no}/{total} (Line {found_idx + 1})", color='indigo', pos='top', duration=1000)
-        else:
-            ui.notify("No matches found", color='orange', pos='top')
-            self.search_state['last_index'] = -1
+    def update_search_ui(self):
+        """検索結果の件数表示を更新します。"""
+        res = self.search_state['results']
+        curr = self.search_state['current']
+        self.search_count_label.set_text(f'{curr + 1} / {len(res)}' if res else '0 / 0')
+
+    def jump_to_match(self, delta: int):
+        """検索結果を前後に移動します。"""
+        res = self.search_state['results']
+        if not res: return
+        self.search_state['current'] = (self.search_state['current'] + delta) % len(res)
+        self.update_search_ui()
+        line = res[self.search_state['current']]
+        self.render_lines(query=self.search_input.value, active_line=line)
+        self.scroll_to_line(line)
+
+    def scroll_to_line(self, line_num: int):
+        """指定された行番号(1-indexed)へスクロールします。"""
+        try: self.scroll_area.scroll_to(pixels=(line_num - 1) * 24)
+        except: pass
 
     def open(self, file_path: Path, relative_path: str, jump_line=None):
-        """指定されたファイルを開き、プレビューを表示します。"""
         try:
             content = file_path.read_text(encoding='utf-8')
-            self.search_state['full_content'] = content
-            self.search_state['last_index'] = -1
+            self.search_state.update({'full_content': content, 'results': [], 'current': -1})
+            self.search_input.value = ''
+            self.search_count_label.set_text('')
             self.title_label.set_text(relative_path)
             
-            ext = file_path.suffix.lower()[1:] or 'text'
-            self.code_container.clear()
+            # トークン配色 (Monokai)
+            self.search_state['colors'] = {
+                Token.Keyword: '#66d9ef', Token.Name.Function: '#a6e22e',
+                Token.Name.Class: '#a6e22e', Token.String: '#e6db74',
+                Token.Comment: '#75715e', Token.Number: '#ae81ff',
+                Token.Operator: '#f92672', Token.Punctuation: '#f8f8f2',
+                Token.Name.Variable: '#f8f8f2', Token.Name.Builtin: '#f8f8f2',
+            }
+
+            ext = file_path.suffix.lower()
+            if ext in {'.pdf', '.xlsx', '.pptx'}:
+                self.code_container.clear()
+                with self.code_container:
+                    ui.label(f"Binary file ({ext}) cannot be previewed.").style('color: #75715e; font-style: italic; padding: 2rem;')
+                self.search_state['tokens'] = [] # Clear tokens for binary files
+            else:
+                try: lexer = get_lexer_for_filename(file_path.name)
+                except:
+                    try: lexer = guess_lexer(content)
+                    except: lexer = TextLexer()
+
+                self.search_state['tokens'] = list(lexer.get_tokens(content))
             
-            with self.code_container:
-                # バイナリ形式の判定
-                if ext in {'pdf', 'xlsx', 'pptx'}:
-                    ui.label(f"Binary file ({ext}) cannot be previewed as text.").classes('text-slate-400 italic')
-                else:
-                    lines = content.splitlines()
-                    ln_width = max(2, len(str(len(lines))))
-                    ln_text = "\n".join(str(i+1) for i in range(len(lines)))
-                    
-                    # 左右に行番号とコード本体を配置
-                    with ui.row().classes('w-full gap-0 items-start no-wrap'):
-                        ui.label(ln_text).classes('line-numbers-col jetbrains-mono text-xs').style(f'width: {ln_width + 2}ch; white-space: pre;')
-                        ui.code(content, language=ext).classes('code-col flex-grow jetbrains-mono text-xs bg-transparent p-0')
+            self.render_lines(active_line=int(jump_line) if jump_line else None)
             
             self.dialog.open()
-            
-            # 特定行へのジャンプ指定がある場合
-            if jump_line is not None:
-                try:
-                    line_idx = int(jump_line) - 1
-                    ui.timer(0.2, lambda: self.scroll_area.scroll_to(pixels=line_idx * 20), once=True)
-                except: pass
-            else:
-                self.scroll_area.scroll_to(pixels=0)
+            if jump_line: self.scroll_to_line(int(jump_line))
+            else: self.scroll_area.scroll_to(pixels=0)
         except Exception as e:
-            ui.notify(f"Read Error: {e}", color='red')
+            ui.notify(f"Error: {str(e)}", color='red')
+
+    def render_lines(self, query: str = None, active_line: int = None):
+        """トークンデータをNiceGUIコンポーネントとして描画します。"""
+        self.code_container.clear()
+        tokens = self.search_state['tokens']
+        colors = self.search_state['colors']
+        
+        def render_row(num, tks):
+            # 該当行のハイライト背景色
+            row_bg = 'background-color: rgba(255, 235, 59, 0.1);' if num == active_line else ''
+            with ui.row().style(f'min-width: 100%; gap: 0; align-items: baseline; height: 1.5rem; white-space: nowrap; {row_bg}'):
+                ui.label(str(num)).style('width: 3.5rem; color: #75715e; text-align: right; user-select: none; font-family: "JetBrains Mono"; font-size: 11px; margin-right: 1.25rem; border-right: 1px solid #3e3d32; padding-right: 0.75rem;')
+                with ui.row().style('gap: 0; align-items: baseline; flex-wrap: nowrap;'):
+                    for tt, tv in tks:
+                        val = tv.replace('\r', '')
+                        if not val or val == '\n': continue
+                        
+                        color = colors.get(tt, '#f8f8f2')
+                        if color == '#f8f8f2':
+                            for ptype, pcolor in colors.items():
+                                if tt in ptype: color = pcolor; break
+                        
+                        # 文字列内ハイライト
+                        if query and query.lower() in val.lower():
+                            parts = re.split(f'({re.escape(query)})', val, flags=re.IGNORECASE)
+                            for part in parts:
+                                if not part: continue
+                                is_match = part.lower() == query.lower()
+                                style = f'color: {"#000" if is_match else color}; background: {"#ffeb3b" if is_match else "transparent"};'
+                                ui.label(part).style(style + ' font-family: "JetBrains Mono"; font-size: 13px; white-space: pre; margin: 0; padding: 0; flex-shrink: 0;')
+                        else:
+                            ui.label(val).style(f'color: {color}; font-family: "JetBrains Mono"; font-size: 13px; white-space: pre; margin: 0; padding: 0; flex-shrink: 0;')
+
+        ln, current_tks, count = 1, [], 0
+        with self.code_container:
+            for tt, tv in tokens:
+                if count >= 1000: break
+                parts = tv.split('\n')
+                for i, part in enumerate(parts):
+                    if i > 0:
+                        render_row(ln, current_tks)
+                        ln += 1; count += 1; current_tks = []
+                    if part: current_tks.append((tt, part))
+            if current_tks and count < 1000:
+                render_row(ln, current_tks)
