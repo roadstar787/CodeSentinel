@@ -17,7 +17,7 @@ from langchain_community.document_loaders import (
 
 # --- システム設定 ---
 APP_NAME = "CodeSentinel"
-APP_VERSION = "0.5.2"
+APP_VERSION = "0.6.1"
 
 class RAGBackend:
     """
@@ -73,13 +73,18 @@ class RAGBackend:
         """ローカルに保存されたFAISSインデックスを読み込みます。"""
         if os.path.exists(self.db_path):
             try:
+                print(f"Loading DB from {self.db_path}...")
                 self.vectorstore = FAISS.load_local(self.db_path, self.embeddings, allow_dangerous_deserialization=True)
                 if self.vectorstore:
                     self.stats["total_chunks"] = self.vectorstore.index.ntotal
+                    print(f"DB loaded: {self.stats['total_chunks']} chunks found.")
                     return True
+                print("FAISS load_local returned None.")
                 return False
-            except: 
+            except Exception as e:
+                print(f"Error loading FAISS index: {e}")
                 return False
+        print(f"DB path {self.db_path} does not exist.")
         return False
 
     def list_chats(self):
@@ -94,15 +99,20 @@ class RAGBackend:
                         "title": data.get("title", "Untitled Chat"),
                         "date": data.get("date", "")
                     })
-            except: continue
+            except Exception as e: 
+                print(f"Error reading chat file {f}: {e}")
+                continue
         return sorted(chats, key=lambda x: x["date"], reverse=True)
 
     def load_chat(self, chat_id):
         """特定のチャット履歴をロードします。"""
         path = self.chat_dir / f"{chat_id}.json"
         if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading chat {chat_id}: {e}")
         return None
 
     def save_chat(self, chat_id, messages, title=None):
@@ -116,13 +126,17 @@ class RAGBackend:
                     existing_title = old_data.get("title", existing_title)
             except: pass
         
-        data = {
-            "title": title if title else existing_title,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "messages": messages
-        }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            data = {
+                "title": title if title else existing_title,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "messages": messages
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"Chat saved: {path}")
+        except Exception as e:
+            print(f"Error saving chat {chat_id}: {e}")
 
     def delete_chat(self, chat_id):
         """チャット履歴ファイルを削除します。"""

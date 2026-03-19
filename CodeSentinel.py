@@ -30,10 +30,18 @@ async def main_page():
     backend.doc_dir = app.storage.user.get('doc_dir', backend.doc_dir)
     backend.mode = app.storage.user.get('mode', 'Normal')
     
+    # データベースの自動ロード
+    if not backend.vectorstore:
+        success = await run.io_bound(backend.load_db)
+        if success:
+            ui.notify(f"Database loaded: {backend.stats['total_chunks']} chunks", color='positive', pos='top')
+    
     # チャットセッションの状態管理
     session = {'id': app.storage.user.get('current_chat_id', str(uuid.uuid4())), 'history': []}
     chat_data = backend.load_chat(session['id'])
-    if chat_data: session['history'] = chat_data.get('messages', [])
+    if chat_data: 
+        session['history'] = chat_data.get('messages', [])
+        print(f"Session {session['id']} restored with {len(session['history'])} messages.")
     
     # ファイルエクスプローラー用ヒットカウント
     state = {'hit_counts': Counter()}
@@ -303,6 +311,11 @@ Context:
     asyncio.create_task(update_status_loop())
     explorer.refresh(backend.target_dir, backend.doc_dir, state['hit_counts'])
     refresh_chat_list()
+    
+    # 保存されている履歴がある場合は描画
+    if session['history']:
+        for msg in session['history']:
+            render_message(chat_results, msg['role'], msg['content'], msg.get('sources'), open_preview_bridge, backend.target_dir, backend.doc_dir)
 
 # --- GUIアプリの起動 ---
 if __name__ in {"__main__", "__mp_main__"}:
