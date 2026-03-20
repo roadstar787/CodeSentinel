@@ -57,15 +57,18 @@ class RAGBackend:
         """LM Studioのエンドポイントに接続可能か確認し、モデル情報を取得します。"""
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{self.lm_studio_url}/models", timeout=30.0)
+                resp = await client.get(f"{self.lm_studio_url}/models", timeout=5.0)
                 if resp.status_code == 200:
-                    self.stats["lm_connected"] = True
                     data = resp.json()
-                    if data.get('data'):
-                        self.stats["model"] = data['data'][0]['id']
-                    return True
-        except Exception as e:
-            print(f"Connection Error Detail: {e}")
+                    models = data.get('data', [])
+                    if models:
+                        self.stats["lm_connected"] = True
+                        self.stats["model"] = models[0]['id']
+                        return True
+                    else:
+                        self.stats["model"] = "No Model"
+        except Exception:
+            pass
         self.stats["lm_connected"] = False
         return False
     

@@ -137,9 +137,7 @@ async def main_page():
                 ui.label('SYSTEM LOAD').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
                 with ui.element('div').classes('status-item'):
                     ui.label('LM Studio').classes('status-label')
-                    with ui.row().classes('items-center gap-2'):
-                        lm_indicator = ui.icon('circle', color='grey').classes('text-[10px]')
-                        lm_status_text = ui.label('Checking...').classes('status-value')
+                    lm_status_text = ui.label('OFFLINE').classes('px-2 py-0.5 rounded text-[10px] font-bold')
                 with ui.element('div').classes('status-item'):
                     ui.label('Active Model').classes('status-label')
                     lm_model_label = ui.label('N/A').classes('status-value truncate max-w-[120px]')
@@ -180,8 +178,8 @@ async def main_page():
             mem = psutil.virtual_memory()
             ram_label.set_text(f"{mem.used // (1024**3)}GB / {mem.total // (1024**3)}GB")
             connected = await backend.check_lm_studio()
-            lm_indicator.props(f'color={"green" if connected else "red"}')
-            lm_status_text.set_text(f'{"ONLINE" if connected else "OFFLINE"}')
+            lm_status_text.set_text('ONLINE' if connected else 'OFFLINE')
+            lm_status_text.classes(replace='bg-green-900/40 text-green-400' if connected else 'bg-red-900/40 text-red-400')
             lm_model_label.set_text(backend.stats["model"])
             is_loaded = backend.vectorstore is not None
             status_chip.set_text('ONLINE' if is_loaded else 'OFFLINE')
@@ -202,6 +200,12 @@ async def main_page():
 
         with chat_results:
             render_message(chat_results, 'user', query)
+            
+            # LM Studioの接続・モデルロード状態を確認
+            if not backend.stats.get("lm_connected"):
+                md = ui.markdown(f"**Error**: LM Studio is not connected or no model is loaded. (Status: {backend.stats.get('model', 'Unknown')})").classes('text-red-500 text-sm p-4 w-full border-b')
+                return
+
             # ローディング表示
             md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
             source_row = ui.row().classes('gap-2 mt-1')
