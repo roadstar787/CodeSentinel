@@ -68,9 +68,27 @@ pip install pytest nicegui  # テスト実行・UI用
    ```
 
 3. **テストの実行**
+   開発の安定性を保つため、以下のコマンドでユニットテストを実行できます。
+   
+   **uv を使用する場合 (推奨):**
    ```bash
-   # 全ユニットテストの実行
+   # すべてのテストを実行
    uv run python -m pytest
+   ```
+   
+   **pip (venv) を使用する場合:**
+   ```bash
+   # プロジェクトルートで PYTHONPATH を設定して実行
+   set PYTHONPATH=.
+   python -m pytest
+   ```
+   
+   **特定のテストのみを実行:**
+   ```bash
+   # パーサーのテストのみ
+   uv run python -m pytest tests/test_chat_parser.py
+   # バックエンドのテストのみ
+   uv run python -m pytest tests/test_backend.py
    ```
 
 ## ライセンス
