@@ -228,8 +228,16 @@ class RAGBackend:
             if not docs:
                 return False, "No documents found"
 
-            # ベクターストアの生成と保存
-            self.vectorstore = FAISS.from_documents(docs, self.embeddings)
+            # ベクターストアの生成前にLM Studioの状態を確認（埋め込みに必要）
+            if not self.stats.get("lm_connected"):
+                return False, "LM Studio not ready. Please load a model for embeddings."
+
+            try:
+                # ベクターストアの生成と保存
+                self.vectorstore = FAISS.from_documents(docs, self.embeddings)
+            except Exception as e:
+                return False, f"Embedding Error (LM Studio): {e}"
+
             if self.vectorstore:
                 self.vectorstore.save_local(self.db_path)
                 self.stats["total_chunks"] = len(docs)

@@ -341,6 +341,9 @@ Context:
     async def rebuild_task():
         """バックグラウンドでベクターストアを再構築します。"""
         if backend.stats["is_rebuilding"]: return
+        if not backend.stats.get("lm_connected"):
+            ui.notify("LM Studio is not ready. Please load a model for embeddings.", color='negative', icon='warning')
+            return
         n = ui.notification('Rebuilding Vector DB...', spinner=True, infinite=True, position='top-right')
         rebuild_btn.classes(add='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20').set_text('BUILDING...')
         try:
