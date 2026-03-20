@@ -26,9 +26,15 @@ class PreviewDialog:
             with ui.row().style('width: 100%; align-items: center; padding: 0.75rem 1rem; background-color: #1e1e1e; border-bottom: 1px solid #3e3d32; gap: 1rem;'):
                 self.title_label = ui.label('').style('font-size: 0.85rem; font-weight: bold; flex-grow: 1; color: #d4d4d4; font-family: "JetBrains Mono";')
                 
-                # AI修正ボタン (初期は非表示)
-                self.fix_button = ui.button('APPLY AI FIX', icon='auto_fix_high', on_click=self.confirm_fix)\
-                    .props('flat dense color=green-4').classes('text-[10px] hidden')
+                # AI修正ボタンと表示切り替え (初期は非表示)
+                with ui.row().classes('items-center gap-2') as self.fix_controls:
+                    self.view_toggle = ui.toggle({
+                        'original': 'ORIGINAL',
+                        'fix': 'AI SUGGESTION'
+                    }, value='original', on_change=self.handle_view_toggle).props('flat dense').classes('text-[10px]')
+                    self.fix_button = ui.button('APPLY AI FIX', icon='auto_fix_high', on_click=self.confirm_fix)\
+                        .props('flat dense color=green-4').classes('text-[10px]')
+                self.fix_controls.classes('hidden')
                 
                 with ui.row().classes('items-center gap-1'):
                     self.search_input = ui.input(placeholder='Search...', on_change=lambda e: self.debounce_search(e.value))\
@@ -49,31 +55,47 @@ class PreviewDialog:
 
     def confirm_fix(self):
         """修正を適用するか確認するダイアログを表示します。"""
-        with ui.dialog() as diag, ui.card().classes('p-6 bg-[#1e1e1e] border border-slate-700'):
-            ui.label('Apply AI Suggestion?').classes('text-lg font-bold text-white mb-2')
-            ui.label('This will modify the file on disk.').classes('text-sm text-slate-400 mb-4')
-            with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('CANCEL', on_click=diag.close).props('flat color=gray')
-                ui.button('APPLY', on_click=lambda: self.apply_fix(diag)).props('flat color=green')
+        with ui.dialog() as diag:
+            with ui.card().classes('p-6 bg-[#1e1e1e] border border-slate-700'):
+                ui.label('AI修正の適用').classes('text-lg font-bold text-white mb-2')
+                ui.label('この操作は元ファイルを直接書き換えます。よろしいですか？').classes('text-sm text-slate-400 mb-2')
+                # スニペットに関する警告を追加
+                with ui.row().classes('items-center gap-2 p-2 bg-amber-900/20 border border-amber-500/50 rounded mb-6'):
+                    ui.icon('warning', color='amber-500')
+                    ui.label('【注意】AIの提案がファイル全体ではなく「一部（スニペット）」の場合、ファイルを破壊する恐れがあります。差分をよく確認してください。').classes('text-[11px] text-amber-200 line-height-tight')
+                
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('キャンセル', on_click=diag.close).props('flat color=gray')
+                    ui.button('適用する', on_click=lambda: self.apply_fix(diag)).props('flat color=green')
+        diag.open()
 
     def apply_fix(self, dialog):
         """実際にファイルの内容を書き換えます。"""
+        import os
         try:
             path = self.search_state['file_path']
             new_code = self.search_state['fix_code']
-            if not path or not new_code: return
+            if not path or not new_code:
+                ui.notify("No fix code available.", color='warning')
+                return
             
-            # 安全のため、現在はファイル全体の置換として実装 (TODO: 行単位の精密パッチ)
-            # もしAIがスニペットだけを返してきた場合、元ファイルの該当行を特定して置換したほうが良いが、
-            # 現状はAIに「修正後の全コード」または「明確なスニペット」を期待する。
-            # ここではシンプルに通知し、ファイルに書き込む。
-            path.write_text(new_code, encoding='utf-8')
-            ui.notify('File patched successfully!', color='positive')
+            # 修正案をファイルに書き込む (UTF-8)
+            # 強制的にOSレベルで同期させる
+            with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(new_code)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except:
+                    pass # 一部のファイルシステムでは失敗する可能性があるため
+            
+            ui.notify(f'SUCCESS: {path.name} has been updated.', color='positive', icon='check_circle')
             dialog.close()
-            # プレビューを再読込
-            self.open(path, str(path), fix_code=None)
+            # プレビューを再読込（修正後の内容を最新として表示）
+            self.open(path, str(path), jump_line=None, fix_code=None)
         except Exception as e:
-            ui.notify(f"Patch Error: {e}", color='red')
+            print(f"[ERROR] Patch failed: {e}")
+            ui.notify(f"Patch Error: {e}", color='red', icon='error')
 
     def handle_search(self, query: str):
         """検索クエリに基づいてヒット箇所を特定し、プレビューを再描画します。"""
@@ -115,54 +137,94 @@ class PreviewDialog:
         try: self.scroll_area.scroll_to(pixels=(line_num - 1) * 24)
         except: pass
 
-    def open(self, file_path: Path, relative_path: str, jump_line=None, fix_code=None):
+    def handle_view_toggle(self):
+        """表示モード（オリジナル/修正案）を切り替えます。"""
+        mode = self.view_toggle.value
+        self.search_state['tokens'] = self.search_state['fix_tokens'] if mode == 'fix' else self.search_state['orig_tokens']
+        self.render_lines()
+
+    def open(self, file_path: Path, relative_path: str, jump_line=None, fix_code=None, file_type='code'):
         try:
-            content = file_path.read_text(encoding='utf-8')
             self.search_state.update({
-                'full_content': content, 
+                'full_content': '', 
                 'results': [], 
                 'current': -1,
                 'file_path': file_path,
-                'fix_code': fix_code
+                'fix_code': fix_code,
+                'orig_tokens': [],
+                'fix_tokens': []
             })
             self.search_input.value = ''
             self.search_count_label.set_text('')
             self.title_label.set_text(relative_path)
             
+            # 表示モードの初期化
+            self.view_toggle.value = 'original'
+            
             # 修正ボタンの表示制御
             if fix_code:
-                self.fix_button.classes(remove='hidden')
+                self.fix_controls.classes(remove='hidden')
             else:
-                self.fix_button.classes(add='hidden')
+                self.fix_controls.classes(add='hidden')
             
-            # トークン配色 (Monokai)
-            self.search_state['colors'] = {
-                Token.Keyword: '#66d9ef', Token.Name.Function: '#a6e22e',
-                Token.Name.Class: '#a6e22e', Token.String: '#e6db74',
-                Token.Comment: '#75715e', Token.Number: '#ae81ff',
-                Token.Operator: '#f92672', Token.Punctuation: '#f8f8f2',
-                Token.Name.Variable: '#f8f8f2', Token.Name.Builtin: '#f8f8f2',
-            }
-
             ext = file_path.suffix.lower()
-            if ext in {'.pdf', '.xlsx', '.pptx'}:
+            if ext == '.pdf':
                 self.code_container.clear()
                 with self.code_container:
-                    ui.label(f"Binary file ({ext}) cannot be previewed.").style('color: #75715e; font-style: italic; padding: 2rem;')
-                self.search_state['tokens'] = [] # Clear tokens for binary files
+                    from urllib.parse import quote
+                    safe_path = quote(relative_path.replace('\\', '/'))
+                    url = f"/serve_file/{file_type}/{safe_path}"
+                    with ui.row().classes('w-full justify-end p-2'):
+                        ui.link('OPEN IN BROWSER', url, new_tab=True).classes('text-xs text-blue-400 underline')
+                    ui.html(f'<iframe src="{url}" style="width: 100%; height: 75vh; border: none; background: white;"></iframe>').classes('w-full')
+                self.search_state['tokens'] = []
+            elif ext in {'.xlsx', '.pptx'}:
+                self.code_container.clear()
+                with self.code_container:
+                    from urllib.parse import quote
+                    safe_path = quote(relative_path.replace('\\', '/'))
+                    url = f"/serve_file/{file_type}/{safe_path}"
+                    with ui.row().classes('w-full justify-end p-2'):
+                        ui.link('OPEN / DOWNLOAD', url, new_tab=True).classes('text-xs text-blue-400 underline')
+                    ui.label(f"Binary file ({ext}) cannot be previewed within the browser.").style('color: #75715e; font-style: italic; padding: 2rem;')
+                    ui.label("Please use the 'OPEN / DOWNLOAD' link above to view in your native application.").style('color: #75715e; font-size: 0.8rem; padding: 0 2rem;')
+                self.search_state['tokens'] = []
             else:
+                content = file_path.read_text(encoding='utf-8')
+                self.search_state['full_content'] = content
+                
+                self.search_state['colors'] = {
+                    Token.Keyword: '#66d9ef', Token.Name.Function: '#a6e22e',
+                    Token.Name.Class: '#a6e22e', Token.String: '#e6db74',
+                    Token.Comment: '#75715e', Token.Number: '#ae81ff',
+                    Token.Operator: '#f92672', Token.Punctuation: '#f8f8f2',
+                    Token.Name.Variable: '#f8f8f2', Token.Name.Builtin: '#f8f8f2',
+                }
+
                 try: lexer = get_lexer_for_filename(file_path.name)
                 except:
                     try: lexer = guess_lexer(content)
                     except: lexer = TextLexer()
 
-                self.search_state['tokens'] = list(lexer.get_tokens(content))
-            
-            self.render_lines(active_line=int(jump_line) if jump_line else None)
+                # オリジナルと修正案の両方をトークン化
+                self.search_state['orig_tokens'] = list(lexer.get_tokens(content))
+                if fix_code:
+                    self.search_state['fix_tokens'] = list(lexer.get_tokens(fix_code))
+                
+                # 表示モードの初期化
+                if fix_code:
+                    self.search_state['tokens'] = self.search_state['fix_tokens']
+                    self.view_toggle.value = 'fix'
+                else:
+                    self.search_state['tokens'] = self.search_state['orig_tokens']
+                    self.view_toggle.value = 'original'
+                
+                self.render_lines(active_line=int(jump_line) if jump_line else None)
             
             self.dialog.open()
-            if jump_line: self.scroll_to_line(int(jump_line))
-            else: self.scroll_area.scroll_to(pixels=0)
+            if not ext == '.pdf':
+                if jump_line: self.scroll_to_line(int(jump_line))
+                else: self.scroll_area.scroll_to(pixels=0)
         except Exception as e:
             ui.notify(f"Error: {str(e)}", color='red')
 

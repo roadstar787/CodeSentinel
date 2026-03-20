@@ -200,15 +200,26 @@ class RAGBackend:
                             continue
 
                         raw = loader.load()
+                        if not raw: continue # 空のファイルはスキップ
+                        
                         for d in raw:
                             # メタデータに相対パスと種別(code/doc)を付与
-                            d.metadata["source"] = str(p.relative_to(base_path))
+                            source_rel = str(p.relative_to(base_path))
+                            d.metadata["source"] = source_rel
                             d.metadata["type"] = target["type"]
                         
                         splitter = code_splitter if target["type"] == "code" else doc_splitter
                         docs.extend(splitter.split_documents(raw))
                     except Exception as e:
-                        print(f"Error loading {p}: {e}")
+                        err_msg = str(e)
+                        # 依存ライブラリの不足を検知してアドバイス
+                        if "No module named" in err_msg:
+                            missing = err_msg.split("'")[-2] if "'" in err_msg else "the required library"
+                            # msoffcrypto はパッケージ名が msoffcrypto-tool なので補正
+                            pkg_name = "msoffcrypto-tool" if missing == "msoffcrypto" else missing
+                            print(f"Error loading {p}: Missing '{pkg_name}'. Please run 'pip install {pkg_name}'.")
+                        else:
+                            print(f"Error loading {p}: {err_msg}")
                         continue
             
             if not docs:

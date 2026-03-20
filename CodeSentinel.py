@@ -6,6 +6,7 @@ from pathlib import Path
 import psutil
 
 from nicegui import ui, run, app
+from starlette.responses import FileResponse
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
@@ -18,6 +19,32 @@ from ui.components import Explorer, PreviewDialog, render_message, render_gap_re
 
 # バックエンドエンジンの初期化
 backend = RAGBackend()
+
+from urllib.parse import quote
+
+@app.get('/serve_file/{file_type}/{rel_path:path}')
+async def serve_file(file_type: str, rel_path: str):
+    """
+    ファイルを動的に配信するルート。
+    """
+    base_dir = backend.target_dir if file_type == 'code' else backend.doc_dir
+    full_path = Path(base_dir) / rel_path
+    
+    # ログ出力（デバッグ用）
+    print(f"Serve request: type={file_type}, rel={rel_path} -> full={full_path}")
+    
+    if full_path.exists() and full_path.is_file():
+        # content_type 算出のために拡張子を確認
+        ext = full_path.suffix.lower()
+        media_type = None
+        if ext == ".pdf": media_type = "application/pdf"
+        elif ext == ".pptx": media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        elif ext == ".xlsx": media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        
+        return FileResponse(full_path, media_type=media_type)
+    
+    print(f"File not found: {full_path}")
+    return {"error": f"File not found: {rel_path}"}, 404
 
 @ui.page('/')
 async def main_page():
@@ -55,8 +82,10 @@ async def main_page():
     def open_preview_bridge(rel_path, base_dir, line=None, fix_code=None):
         """パスを解決してプレビューアを呼び出すためのブリッジ関数。"""
         if not rel_path: return
+        # ドキュメントディレクトリかコードディレクトリかを判定
+        file_type = 'document' if str(base_dir) == str(backend.doc_dir) else 'code'
         full = Path(base_dir) / rel_path
-        previewer.open(full, rel_path, line, fix_code)
+        previewer.open(full, rel_path, line, fix_code, file_type=file_type)
 
     # --- 左サイドバー（ドロワー）: 明示的に開いた状態(value=True)に設定 ---
     with ui.left_drawer(value=True, fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
@@ -211,7 +240,7 @@ async def main_page():
                 api_key="lm-studio", 
                 temperature=0.1, 
                 streaming=True,
-                max_tokens=4096  # 応答が途切れないよう十分に大きく確保
+                max_tokens=8192  # トークン不足による途切れを防ぐため大幅に引き上げ
             )
             
             # プロンプトの構築（モードに応じて変更）
@@ -221,15 +250,19 @@ async def main_page():
 Q: {i}
 
 【回答ガイドライン】
-1. 仕様書(document)に記載されている内容と、実際のソースコード(code)を網羅的に比較してください。
-2. 仕様にあるが実装されていない項目、または仕様と実装が矛盾・乖離している箇所を特定してください。
-3. 回答は日本語で簡潔に行い、具体的なファイル名や仕様（章節号など）を正確に引用してください。
+1. 仕様書(document)とソースコード(code)を網羅的に比較・分析してください。
+2. 仕様にあるが実装されていない項目、または矛盾・乖離している箇所を特定してください。
+3. **まず、分析結果の要約（どのファイルにどのような乖離があるか）を日本語の文章で分かりやすく記述してください。**
+4. **【重要】修正後のソースコードは本文（文章部分）には絶対に含めないでください。** すべて以下の JSON 内の "corrected_code" フィールドにのみ記述してください。
 
-【重要：構造化データの出力】
-回答の最後に、分析結果の要約を JSON 形式で `<gaps>` タグで囲んで **必ず** 含めてください。
+【出力形式：構造化データ】
+分析結果の要約のあとに、見つかった **すべての** 乖離・矛盾項目を漏れなく JSON 形式で `<gaps>` タグ内に含めてください。
+注意：分析結果（本文）で言及したすべての項目に対応するカードを必ず出力してください。
+トークン制限を考慮し、 "corrected_code" は修正箇所のスニペットでも構いません。網羅性を最優先してください。
+
 形式:
 <gaps>
-[ {{"file": "ファイル名", "line": 行番号またはnull, "issue": "乖離・矛盾の内容", "corrected_code": "修正後のコードスニペット"}} ]
+[ {{"file": "ファイル名", "line": 行番号またはnull, "issue": "乖離・矛盾の内容", "corrected_code": "修正後のコード（スニペット可）"}} ]
 </gaps>
 
 Context:
@@ -247,7 +280,7 @@ Context:
             
             # Gap分析モードならカードを描画
             if backend.mode == 'Gap':
-                render_gap_results(chat_results, full, open_preview_bridge, backend.target_dir)
+                render_gap_results(chat_results, full, open_preview_bridge, backend.target_dir, sources=unique_hits)
 
             with chat_results:
                 ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=full: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
