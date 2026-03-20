@@ -1,3 +1,17 @@
+import os
+import sys
+import multiprocessing
+
+# PyInstaller + Multiprocessing (NiceGUI/Uvicorn) の無限ループ防止
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
+
+# Windowed (noconsole) Exeの場合、stdout/stderrがNoneになり、uvicornのロギングでisattyエラーが出るのを防ぐ
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
 import asyncio
 import json
 import uuid
@@ -366,4 +380,5 @@ Context:
 # --- GUIアプリの起動 ---
 if __name__ in {"__main__", "__mp_main__"}:
     # 秘密鍵を設定してstorage（永続化機能）を有効化
-    ui.run(title=APP_NAME, port=8080, storage_secret='codesentinel_secret')
+    # frozen（Exe化）環境では reload=True がエラーになるため明示的に False にする
+    ui.run(title=APP_NAME, port=8080, storage_secret='codesentinel_secret', reload=False)
