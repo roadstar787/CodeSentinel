@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 from datetime import datetime
 from pathlib import Path
 import httpx
@@ -14,6 +15,9 @@ from langchain_community.document_loaders import (
     UnstructuredExcelLoader, 
     UnstructuredPowerPointLoader
 )
+from pydantic import SecretStr
+
+logger = logging.getLogger(__name__)
 
 # --- システム設定 ---
 APP_NAME = "CodeSentinel"
@@ -40,7 +44,7 @@ class RAGBackend:
         # LM Studio互換のエンドポイントを使用した埋め込みモデルの設定
         self.embeddings = OpenAIEmbeddings(
             base_url=self.lm_studio_url,
-            api_key="lm-studio",
+            api_key=SecretStr("lm-studio"),
             check_embedding_ctx_length=False
         )
         # システム統計情報
@@ -76,18 +80,18 @@ class RAGBackend:
         """ローカルに保存されたFAISSインデックスを読み込みます。"""
         if os.path.exists(self.db_path):
             try:
-                print(f"Loading DB from {self.db_path}...")
+                logger.info(f"Loading DB from {self.db_path}...")
                 self.vectorstore = FAISS.load_local(self.db_path, self.embeddings, allow_dangerous_deserialization=True)
                 if self.vectorstore:
                     self.stats["total_chunks"] = self.vectorstore.index.ntotal
-                    print(f"DB loaded: {self.stats['total_chunks']} chunks found.")
+                    logger.info(f"DB loaded: {self.stats['total_chunks']} chunks found.")
                     return True
-                print("FAISS load_local returned None.")
+                logger.warning("FAISS load_local returned None.")
                 return False
             except Exception as e:
-                print(f"Error loading FAISS index: {e}")
+                logger.error(f"Error loading FAISS index: {e}")
                 return False
-        print(f"DB path {self.db_path} does not exist.")
+        logger.warning(f"DB path {self.db_path} does not exist.")
         return False
 
     def list_chats(self):
@@ -103,7 +107,7 @@ class RAGBackend:
                         "date": data.get("date", "")
                     })
             except Exception as e: 
-                print(f"Error reading chat file {f}: {e}")
+                logger.error(f"Error reading chat file {f}: {e}")
                 continue
         return sorted(chats, key=lambda x: x["date"], reverse=True)
 
@@ -115,7 +119,7 @@ class RAGBackend:
                 with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading chat {chat_id}: {e}")
+                logger.error(f"Error loading chat {chat_id}: {e}")
         return None
 
     def save_chat(self, chat_id, messages, title=None):
@@ -137,9 +141,9 @@ class RAGBackend:
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"Chat saved: {path}")
+            logger.info(f"Chat saved: {path}")
         except Exception as e:
-            print(f"Error saving chat {chat_id}: {e}")
+            logger.error(f"Error saving chat {chat_id}: {e}")
 
     def delete_chat(self, chat_id):
         """チャット履歴ファイルを削除します。"""
@@ -220,9 +224,9 @@ class RAGBackend:
                             missing = err_msg.split("'")[-2] if "'" in err_msg else "the required library"
                             # msoffcrypto はパッケージ名が msoffcrypto-tool なので補正
                             pkg_name = "msoffcrypto-tool" if missing == "msoffcrypto" else missing
-                            print(f"Error loading {p}: Missing '{pkg_name}'. Please run 'pip install {pkg_name}'.")
+                            logger.error(f"Error loading {p}: Missing '{pkg_name}'. Please run 'pip install {pkg_name}'.")
                         else:
-                            print(f"Error loading {p}: {err_msg}")
+                            logger.error(f"Error loading {p}: {err_msg}")
                         continue
             
             if not docs:

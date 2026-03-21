@@ -1,6 +1,7 @@
 import os
 import sys
 import multiprocessing
+import logging
 
 # PyInstaller + Multiprocessing (NiceGUI/Uvicorn) の無限ループ防止
 if __name__ == '__main__':
@@ -24,6 +25,24 @@ from starlette.responses import FileResponse
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
+
+def safe_clear(element):
+    """要素が有効なクライアントに属している場合のみクリアする。"""
+    try:
+        if hasattr(element, 'client') and element.client is not None:
+            element.clear()
+    except RuntimeError:
+        pass
+
+# ログ設定
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logging.getLogger('nicegui').setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 # 自作モジュールのインポート：ロジック、スタイル、コンポーネントを分離
 from backend import RAGBackend, APP_NAME, APP_VERSION
@@ -45,7 +64,7 @@ async def serve_file(file_type: str, rel_path: str):
     full_path = Path(base_dir) / rel_path
     
     # ログ出力（デバッグ用）
-    print(f"Serve request: type={file_type}, rel={rel_path} -> full={full_path}")
+    logger.debug(f"Serve request: type={file_type}, rel={rel_path} -> full={full_path}")
     
     if full_path.exists() and full_path.is_file():
         # content_type 算出のために拡張子を確認
@@ -57,7 +76,7 @@ async def serve_file(file_type: str, rel_path: str):
         
         return FileResponse(full_path, media_type=media_type)
     
-    print(f"File not found: {full_path}")
+    logger.warning(f"File not found: {full_path}")
     return {"error": f"File not found: {rel_path}"}, 404
 
 @ui.page('/')
@@ -82,12 +101,12 @@ async def main_page():
     chat_data = backend.load_chat(session['id'])
     if chat_data: 
         session['history'] = chat_data.get('messages', [])
-        print(f"Session {session['id']} restored with {len(session['history'])} messages.")
+        logger.info(f"Session {session['id']} restored with {len(session['history'])} messages.")
     
     # ファイルエクスプローラー用ヒットカウント
     state = {'hit_counts': Counter()}
 
-    # カスタムCSSの注入
+    # カスタムCSSとMermaid.jsの注入
     ui.add_head_html(APP_CSS)
 
     # プレビュー用ダイアログの初期化
@@ -220,15 +239,19 @@ async def main_page():
                 md = ui.markdown(f"**Error**: LM Studio is not connected or no model is loaded. (Status: {backend.stats.get('model', 'Unknown')})").classes('text-red-500 text-sm p-4 w-full border-b')
                 return
 
-            # ローディング表示
-            md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
+            # AI回答用のプレースホルダーとコンテナ
+            response_container = ui.column().classes('w-full')
             source_row = ui.row().classes('gap-2 mt-1')
+            with response_container:
+                md_loading = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
 
         try:
             # RAG検索の実行
             retriever = backend.get_retriever()
             if not retriever:
-                md.set_content("Database not loaded.")
+                safe_clear(response_container)
+                with response_container:
+                    ui.markdown("Database not loaded.").classes('text-red-500 text-sm p-4 w-full border-b')
                 return
             docs = await run.io_bound(retriever.invoke, query)
             
@@ -253,16 +276,10 @@ async def main_page():
             
             # コンテキスト構築
             context = "\n".join([f"TYPE: {d.metadata.get('type','unknown')}\nFILE: {d.metadata['source']}\n{d.page_content}" for d in docs])
-            llm = ChatOpenAI(
-                base_url=backend.lm_studio_url, 
-                api_key="lm-studio", 
-                temperature=0.1, 
-                streaming=True,
-                max_tokens=8192  # トークン不足による途切れを防ぐため大幅に引き上げ
-            )
             
             # プロンプトの構築（モードに応じて変更）
-            prompt_str = """あなたは優秀なソフトウェアエンジニア兼テクニカルドキュメントアナリストです。
+            if backend.mode == 'Gap':
+                prompt_str = """あなたは優秀なソフトウェアエンジニア兼テクニカルドキュメントアナリストです。
 提供されたコンテキストに基づいて、仕様書(document)とソースコード(code)を詳細に比較・分析してください。
 
 Q: {i}
@@ -285,15 +302,45 @@ Q: {i}
 
 Context:
 {c}
-""" if backend.mode == 'Gap' else "回答は日本語で行ってください。\n\nContext:\n{c}\n\nQ: {i}"
+"""
+            elif backend.mode == 'Reverse':
+                prompt_str = """あなたは高度なエンジニアリングアナリストです。提供されたソースコードを解析し、以下の2点を出力してください。
 
+1. **機能仕様の復元**: コードの役割、主要な関数/クラスのインターフェース、データ構造を詳細なマークダウン形式で記述してください。
+2. **設計図の生成**: システムの構造や処理フローを視覚化するため、Mermaid.js 形式の図（Class Diagram または Sequence Diagram）を **必ず** 作成してください。
+
+【出力ガイドライン】
+- 回答は日本語で行ってください。
+- **Mermaid図は必ず開始タグ ```mermaid と終了タグ ``` で囲って出力してください。**
+- **開始タグの直後は改行してください（例: ```mermaid\\ngraph TD...）。**
+- **クラス図などでジェネリクスを使用する場合、`<T>` ではなく `~T~` 形式を使用してください（例: `std::vector~int~`）。**
+- **Mermaid内での括弧 `( )` や特殊記号を含むラベルは必ず引用符 `"` で囲ってください（例: A["Method()"]）**。
+- タグや構文に不備があると図が描画されません。必ず対になるように、また正しい構文で出力してください。
+- 実装の背景にある意図や、改善・拡張のヒントも含めてください。
+
+Context:
+{c}
+
+Q: {i}
+"""
+            else:
+                prompt_str = "回答は日本語で行ってください。\n\nContext:\n{c}\n\nQ: {i}"
+
+            llm = ChatOpenAI(
+                base_url=backend.lm_studio_url, 
+                api_key=SecretStr("lm-studio"), 
+                temperature=0.1, 
+                streaming=True
+            )
+            
             chain = ChatPromptTemplate.from_template(prompt_str) | llm | StrOutputParser()
             full = ""
             # ストリーミング逐次表示
             async for chunk in chain.astream({"c": context, "i": query}):
                 full += chunk
-                display_text = full.split("<gaps>")[0] if "<gaps>" in full else full
-                md.set_content(display_text)
+                safe_clear(response_container)
+                with response_container:
+                    render_message(response_container, 'ai', full, sources=unique_hits, open_preview_func=open_preview_bridge, target_dir=backend.target_dir, doc_dir=backend.doc_dir)
                 ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
             
             # Gap分析モードならカードを描画
@@ -311,11 +358,13 @@ Context:
             refresh_chat_list()
 
         except Exception as e:
-            md.set_content(f"Error: {str(e)}")
+            safe_clear(response_container)
+            with response_container:
+                ui.markdown(f"**Error**: {str(e)}").classes('text-red-500 text-sm p-4 w-full border-b')
 
     def refresh_chat_list():
         """チャット履歴の一覧をサイドバーに再描画します。"""
-        chat_list_container.clear()
+        safe_clear(chat_list_container)
         for c in backend.list_chats():
             with chat_list_container, ui.row().classes('w-full items-center gap-1 group'):
                 btn = ui.button(on_click=lambda e, cid=c['id']: load_chat_session(cid)).props('flat no-caps dense').classes('flex-grow text-left justify-start px-2 py-1 rounded hover:bg-slate-700/50')
@@ -330,7 +379,7 @@ Context:
         if not data: return
         session.update({'id': chat_id, 'history': data.get('messages', [])})
         app.storage.user['current_chat_id'] = chat_id
-        chat_results.clear()
+        safe_clear(chat_results)
         for msg in session['history']:
             render_message(chat_results, msg['role'], msg['content'], msg.get('sources'), open_preview_bridge, backend.target_dir, backend.doc_dir)
         ui.notify(f"Chat loaded: {data['title']}")
@@ -341,7 +390,7 @@ Context:
         new_id = str(uuid.uuid4())
         session.update({'id': new_id, 'history': []})
         app.storage.user['current_chat_id'] = new_id
-        chat_results.clear()
+        safe_clear(chat_results)
         ui.notify("New chat started")
         refresh_chat_list()
 

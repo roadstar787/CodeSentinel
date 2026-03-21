@@ -15,8 +15,8 @@ def create_header(drawer_toggle_func, app_name, app_version, backend_stats, mode
         
         with ui.row().classes('items-center gap-2'):
             ui.label('MODE:').classes('text-[10px] text-slate-400')
-            # Q&AモードとGAPモードの切替
-            m_toggle = ui.toggle({'Normal': 'Q&A', 'Gap': 'GAP'}, value=backend_stats["mode"], on_change=lambda e: mode_toggle_func(e.value)).props('dense unelevated toggle-color=indigo-600 color=slate-200 text-color=slate-600').classes('text-[10px]')
+            # Q&Aモード, GAPモード, REVERSEモードの切替
+            m_toggle = ui.toggle({'Normal': 'Q&A', 'Gap': 'GAP', 'Reverse': 'REV'}, value=backend_stats["mode"], on_change=lambda e: mode_toggle_func(e.value)).props('dense unelevated toggle-color=indigo-600 color=slate-200 text-color=slate-600').classes('text-[10px]')
             # 総チャンク数の表示
             idx_label = ui.label(f'IDX: {backend_stats["total_chunks"]}').classes('text-[10px] font-mono text-slate-500')
     return m_toggle, idx_label

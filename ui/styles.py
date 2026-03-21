@@ -17,5 +17,19 @@ APP_CSS = '''
         }
         .gap-file { font-size: 0.75rem; font-weight: bold; color: #b91c1c; margin-bottom: 4px; }
         .gap-issue { font-size: 0.85rem; color: #450a0a; line-height: 1.5; }
+
+        /* Mermaid Diagrams */
+        .mermaid { 
+            background: white; 
+            padding: 16px; 
+            border-radius: 8px; 
+            border: 1px solid #e2e8f0;
+            margin-top: 12px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: center;
+        }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad:true});</script>
 '''
