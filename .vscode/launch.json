@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CodeSentinel: デバッグ",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/CodeSentinel.py",
+      "console": "integratedTerminal",
+      "env": {
+        "LOG_LEVEL": "DEBUG"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "CodeSentinel: デバッグ (メインエントリ)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "env": {
+        "LOG_LEVEL": "DEBUG"
+      },
+      "justMyCode": false
+    },
+    {
+      "name": "CodeSentinel: デバッグ (モジュール)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "CodeSentinel",
+      "console": "integratedTerminal",
+      "env": {
+        "LOG_LEVEL": "DEBUG"
+      },
+      "justMyCode": false
+    }
+  ]
+}

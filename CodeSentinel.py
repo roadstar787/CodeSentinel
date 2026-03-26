@@ -159,9 +159,19 @@ class RAGBackend:
         return None
     
     # ベクトルストアを再構築するメソッド
-    def rebuild_db(self):
+    async def rebuild_db(self):
         self.stats["is_rebuilding"] = True  # 再構築中フラグを立てる
         docs = []
+        
+        # LM Studioへの接続を確認
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{self.lm_studio_url}/models", timeout=10.0)
+                if resp.status_code != 200:
+                    return False, f"LM Studio connection failed: {resp.status_code}"
+        except Exception as e:
+            return False, f"LM Studio connection error: {str(e)}"
         
         # チャンク分割設定
         code_splitter = RecursiveCharacterTextSplitter(
@@ -186,6 +196,10 @@ class RAGBackend:
                 # ファイルを再帰的に検索
                 files = [p for p in base_path.rglob('*') if p.suffix.lower() in target["exts"] and ".venv" not in p.parts and ".git" not in p.parts]
                 
+                # ファイル数が多すぎないかチェック
+                if len(files) > 10000:
+                    return False, f"Too many files ({len(files)}). Please reduce the number of files."
+                
                 for p in files:
                     try:
                         ext = p.suffix.lower()
@@ -208,7 +222,15 @@ class RAGBackend:
                             d.metadata["type"] = target["type"] # 区分けを追加
                         
                         splitter = code_splitter if target["type"] == "code" else doc_splitter
-                        docs.extend(splitter.split_documents(raw))
+                        chunks = splitter.split_documents(raw)
+                        docs.extend(chunks)
+                        
+                        # メモリ使用量のチェック
+                        import psutil
+                        mem = psutil.virtual_memory()
+                        if mem.percent > 90:
+                            return False, f"High memory usage ({mem.percent}%). Please try with fewer files."
+                            
                     except Exception as e:
                         print(f"Error loading {p}: {e}")
                         continue
@@ -216,13 +238,23 @@ class RAGBackend:
             if not docs:
                 return False, "No documents found"
 
-            # FAISSベクトルストアをドキュメントから構築
-            self.vectorstore = FAISS.from_documents(docs, self.embeddings)
-            # ベクトルストアをローカルに保存
-            self.vectorstore.save_local(self.db_path)
-            self.stats["total_chunks"] = len(docs)  # チャンク総数を更新
-            self.stats["last_rebuild"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            return True, "SUCCESS"
+            # ドキュメント数が多すぎないかチェック
+            if len(docs) > 50000:
+                return False, f"Too many document chunks ({len(docs)}). Please reduce the number of files."
+
+            try:
+                # FAISSベクトルストアをドキュメントから構築
+                self.vectorstore = FAISS.from_documents(docs, self.embeddings)
+                # ベクトルストアをローカルに保存
+                self.vectorstore.save_local(self.db_path)
+                self.stats["total_chunks"] = len(docs)  # チャンク総数を更新
+                self.stats["last_rebuild"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                return True, "SUCCESS"
+            except Exception as e:
+                return False, f"Failed to create vector store: {str(e)}"
+                
+        except Exception as e:
+            return False, f"Unexpected error during rebuild: {str(e)}"
         finally: 
             self.stats["is_rebuilding"] = False  # 再構築完了後フラグを下ろす
 
@@ -783,7 +815,7 @@ Context:
         
         try:
             # バックグラウンドで再構築を実行
-            success, msg = await run.io_bound(backend.rebuild_db)
+            success, msg = await backend.rebuild_db()
             
             # 通知の更新
             n.dismiss()
