@@ -19,6 +19,7 @@ from ..config import Settings, settings
 from .vector_store import VectorStoreManager
 from .document_processor import DocumentProcessor
 from .chat_service import ChatService
+from todo_service import TodoService
 
 
 class RAGBackend:
@@ -50,6 +51,7 @@ class RAGBackend:
         self.vector_store = None
         self.document_processor = DocumentProcessor(self.config)
         self.chat_service = ChatService(self.config)
+        self.todo_service = TodoService(self.config.paths.todo_dir_path)
         
         # 初期化
         self._initialize_directories()
