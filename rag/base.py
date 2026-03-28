@@ -1,30 +1,20 @@
 """
 RAG Backendの基本クラス
 CodeSentinelのRAG機能の基底クラスを定義します。
+サービスオーケストレーターとして各サービスを管理します。
 """
 
-import os
-import asyncio
-import uuid
-import json
-from datetime import datetime
-from pathlib import Path
 from typing import Dict, Any, List, Optional
-from collections import Counter
-
-import httpx
-import psutil
 
 from ..config import Settings, settings
-from .vector_store import VectorStoreManager
-from .document_processor import DocumentProcessor
-from .chat_service import ChatService
-from todo_service import TodoService
+from .service_container import ServiceContainer
+from .interfaces import IChatService, ITodoService, IDocumentService
 
 
 class RAGBackend:
     """
     RAG（Retrieval-Augmented Generation）のバックエンド処理を管理するクラス
+    サービスオーケストレーターとして各サービスを連携させます
     """
     
     def __init__(self, config: Optional[Settings] = None):
@@ -37,7 +27,10 @@ class RAGBackend:
         self.config = config or settings
         self.mode = self.config.app.mode
         
-        # 統計情報
+        # サービスコンテナの初期化
+        self.service_container = ServiceContainer(self.config)
+        
+        # 統計情報（ドキュメントサービスから取得）
         self.stats = {
             "total_chunks": 0,
             "is_rebuilding": False,
@@ -47,15 +40,9 @@ class RAGBackend:
             "last_rebuild": "Never"
         }
         
-        # サブコンポーネント
-        self.vector_store = None
-        self.document_processor = DocumentProcessor(self.config)
-        self.chat_service = ChatService(self.config)
-        self.todo_service = TodoService(self.config.paths.todo_dir_path)
-        
         # 初期化
         self._initialize_directories()
-        self.load_db()
+        self._initialize_services()
     
     def _initialize_directories(self):
         """必要なディレクトリの初期化"""
@@ -65,6 +52,32 @@ class RAGBackend:
         # ベクトルストアディレクトリ
         self.config.paths.db_full_path.mkdir(exist_ok=True)
     
+    def _initialize_services(self):
+        """サービスを初期化"""
+        self.service_container.initialize()
+        
+        # 初期化後に統計情報を同期
+        self._sync_statistics()
+    
+    def _sync_statistics(self):
+        """統計情報を同期"""
+        document_service = self.get_document_service()
+        if document_service:
+            doc_stats = document_service.get_statistics()
+            self.stats.update(doc_stats)
+    
+    def get_chat_service(self) -> IChatService:
+        """チャットサービスを取得"""
+        return self.service_container.get_chat_service()
+    
+    def get_todo_service(self) -> ITodoService:
+        """ToDoサービスを取得"""
+        return self.service_container.get_todo_service()
+    
+    def get_document_service(self) -> IDocumentService:
+        """ドキュメントサービスを取得"""
+        return self.service_container.get_document_service()
+    
     async def check_lm_studio(self) -> bool:
         """
         LM Studioへの接続を確認し、モデル情報を取得する
@@ -72,24 +85,9 @@ class RAGBackend:
         Returns:
             bool: 接続できた場合はTrue
         """
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    self.config.lm_studio.get_models_url(), 
-                    timeout=self.config.lm_studio.timeout
-                )
-                if resp.status_code == 200:
-                    self.stats["lm_connected"] = True
-                    data = resp.json()
-                    if data.get('data'):
-                        self.stats["model"] = data['data'][0]['id']
-                    return True
-                else:
-                    print(f"LM Studio returned status: {resp.status_code}")
-        except Exception as e:
-            print(f"Connection Error Detail: {e}")
-        
-        self.stats["lm_connected"] = False
+        document_service = self.get_document_service()
+        if document_service:
+            return await document_service.check_lm_studio()
         return False
     
     def load_db(self) -> bool:
@@ -99,17 +97,12 @@ class RAGBackend:
         Returns:
             bool: ロードできた場合はTrue
         """
-        if os.path.exists(self.config.paths.db_path):
-            try:
-                self.vector_store = VectorStoreManager.load_local(
-                    self.config.paths.db_path, 
-                    self.config.lm_studio,
-                    allow_dangerous_deserialization=True
-                )
-                self.stats["total_chunks"] = self.vector_store.index.ntotal
-                return True
-            except Exception:
-                return False
+        document_service = self.get_document_service()
+        if document_service:
+            success = document_service.load_database()
+            if success:
+                self._sync_statistics()
+            return success
         return False
     
     def get_retriever(self):
@@ -119,8 +112,9 @@ class RAGBackend:
         Returns:
             リトリーバーオブジェクト
         """
-        if self.vector_store:
-            return self.vector_store.as_retriever(search_kwargs={"k": self.config.rag.search_k})
+        document_service = self.get_document_service()
+        if document_service:
+            return document_service.get_retriever()
         return None
     
     async def rebuild_db(self) -> tuple[bool, str]:
@@ -133,22 +127,14 @@ class RAGBackend:
         self.stats["is_rebuilding"] = True
         
         try:
-            # LM Studioへの接続確認
-            connected = await self.check_lm_studio()
-            if not connected:
-                return False, "LM Studio connection failed"
+            document_service = self.get_document_service()
+            if document_service:
+                success, message = await document_service.rebuild_database()
+                if success:
+                    self._sync_statistics()
+                return success, message
             
-            # ドキュメント処理とベクトルストア構築
-            success, message = await self.document_processor.process_all_documents()
-            if not success:
-                return False, message
-            
-            # ベクトルストアの保存
-            self.vector_store.save_local(self.config.paths.db_path)
-            self.stats["total_chunks"] = len(self.document_processor.processed_documents)
-            self.stats["last_rebuild"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            return True, "SUCCESS"
+            return False, "Document service not available"
             
         except Exception as e:
             return False, f"Unexpected error during rebuild: {str(e)}"
@@ -162,19 +148,10 @@ class RAGBackend:
         Returns:
             チャットリスト
         """
-        chats = []
-        for f in self.config.paths.chat_dir.glob("*.json"):
-            try:
-                with open(f, "r", encoding="utf-8") as j:
-                    data = json.load(j)
-                    chats.append({
-                        "id": f.stem,
-                        "title": data.get("title", "Untitled Chat"),
-                        "date": data.get("date", "")
-                    })
-            except Exception:
-                continue
-        return sorted(chats, key=lambda x: x["date"], reverse=True)
+        chat_service = self.get_chat_service()
+        if chat_service:
+            return chat_service.list_chat_histories()
+        return []
     
     def load_chat(self, chat_id: str) -> Optional[Dict]:
         """
@@ -186,10 +163,9 @@ class RAGBackend:
         Returns:
             チャットデータ
         """
-        path = self.config.paths.chat_dir / f"{chat_id}.json"
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+        chat_service = self.get_chat_service()
+        if chat_service:
+            return chat_service.load_chat_history(chat_id)
         return None
     
     def save_chat(self, chat_id: str, messages: List[Dict], title: Optional[str] = None):
@@ -201,26 +177,9 @@ class RAGBackend:
             messages: メッセージリスト
             title: タイトル
         """
-        path = self.config.paths.chat_dir / f"{chat_id}.json"
-        
-        # 既存データの読み込み
-        existing_title = "New Chat"
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    old_data = json.load(f)
-                    existing_title = old_data.get("title", existing_title)
-            except Exception:
-                pass
-        
-        data = {
-            "title": title if title else existing_title,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "messages": messages
-        }
-        
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        chat_service = self.get_chat_service()
+        if chat_service:
+            chat_service.save_chat_history(chat_id, messages, title)
     
     def delete_chat(self, chat_id: str):
         """
@@ -229,9 +188,9 @@ class RAGBackend:
         Args:
             chat_id: チャットID
         """
-        path = self.config.paths.chat_dir / f"{chat_id}.json"
-        if path.exists():
-            path.unlink()
+        chat_service = self.get_chat_service()
+        if chat_service:
+            chat_service.delete_chat_history(chat_id)
     
     def update_user_settings(self, user_storage: Dict[str, Any]):
         """
