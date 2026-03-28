@@ -446,7 +446,6 @@ async def main_page():
 
     # --- サイドバー (復活) ---
     # アプリケーションのサイドバー（左ドロワー）
-    # with ui.left_drawer(fixed=True).classes('p-0 bg-[#0a0f18]') as drawer:
     with ui.left_drawer(fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
         # サイドバー内のタブナビゲーション
         with ui.tabs().classes('w-full text-slate-500') as tabs:
@@ -549,12 +548,10 @@ async def main_page():
                 
                 ui.label('SYSTEM LOAD').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
                 
-                # LM Studioの接続状態
+                # LM Studioの接続状態（Vector DBと同じ形式に統一）
                 with ui.element('div').classes('status-item'):
                     ui.label('LM Studio').classes('status-label')
-                    with ui.row().classes('items-center gap-2'):
-                        lm_indicator = ui.icon('circle', color='grey').classes('text-[10px]')
-                        lm_status_text = ui.label('Checking...').classes('status-value')
+                    lm_status_chip = ui.label('Checking...').classes('px-2 py-0.5 rounded text-[10px] font-bold')
                 
                 # モデル名
                 with ui.element('div').classes('status-item'):
@@ -643,8 +640,9 @@ async def main_page():
             ram_label.set_text(f"{mem.used // (1024**3)}GB / {mem.total // (1024**3)}GB")
             
             connected = await backend.check_lm_studio()
-            lm_indicator.props(f'color={"green" if connected else "red"}')
-            lm_status_text.set_text(f'{"ONLINE" if connected else "OFFLINE"}')
+            # LM Studioの状態を更新（Vector DBと同じ形式に統一）
+            lm_status_chip.set_text('ONLINE' if connected else 'OFFLINE')
+            lm_status_chip.classes(replace='bg-green-900/40 text-green-400' if connected else 'bg-red-900/40 text-red-400')
             lm_model_label.set_text(backend.stats["model"])
             
             # DB状態の更新
