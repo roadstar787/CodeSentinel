@@ -22,6 +22,8 @@ from langchain_community.document_loaders import (
     UnstructuredExcelLoader, 
     UnstructuredPowerPointLoader
 )  # 各種ファイルローダー
+from config import Settings  # 設定モジュール
+from todo_service import TodoService  # ToDoサービス
 
 # --- システム設定 ---
 # アプリケーションの名前
@@ -54,6 +56,8 @@ class RAGBackend:
             api_key="lm-studio",  # LM Studio用のダミーAPIキー
             check_embedding_ctx_length=False  # 埋め込みコンテキスト長のチェックを無効化
         )
+        # ToDoサービスの初期化
+        self.todo_service = TodoService(Path("todo_history"))
         # RAGバックエンドの統計情報
         self.stats = {
             "total_chunks": 0, 
@@ -448,6 +452,7 @@ async def main_page():
         with ui.tabs().classes('w-full text-slate-500') as tabs:
             tab_exp = ui.tab('EXP', icon='account_tree')  # エクスプローラータブ
             tab_cht = ui.tab('CHATS', icon='chat')  # チャット履歴タブ
+            tab_tod = ui.tab('TODOS', icon='check_box')  # ToDoリストタブ
             tab_set = ui.tab('SET', icon='settings')  # 設定タブ
             tab_sts = ui.tab('STS', icon='hub')  # ステータスタブ
 
@@ -465,6 +470,48 @@ async def main_page():
                     ui.label('HISTORY').classes('text-[10px] text-slate-600 tracking-widest')
                     ui.button(icon='add', on_click=lambda: start_new_chat()).props('flat round dense color=slate-400')
                 chat_list_container = ui.column().classes('w-full gap-2')
+
+            # ToDoリストタブの内容
+            with ui.tab_panel(tab_tod):
+                with ui.row().classes('w-full items-center justify-between mb-4'):
+                    ui.label('TODOS').classes('text-[10px] text-slate-600 tracking-widest')
+                    ui.button(icon='add', on_click=lambda: show_add_todo_dialog()).props('flat round dense color=slate-400')
+                
+                # ToDo統計情報
+                todo_stats_container = ui.row().classes('w-full gap-4 mb-4')
+                
+                # ToDoリスト表示エリア
+                todo_list_container = ui.column().classes('w-full gap-2')
+                
+                # ソートとフィルタリングコントロール
+                with ui.row().classes('w-full items-center justify-between mb-2'):
+                    with ui.row().classes('gap-2'):
+                        # ソートオプション
+                        sort_select = ui.select(
+                            options={
+                                'created_at_desc': '作成日時 (新しい順)',
+                                'created_at_asc': '作成日時 (古い順)',
+                                'updated_at_desc': '更新日時 (新しい順)',
+                                'updated_at_asc': '更新日時 (古い順)',
+                                'priority_desc': '優先度 (高→低)',
+                                'priority_asc': '優先度 (低→高)',
+                                'due_date_asc': '期限 (近い順)',
+                            },
+                            value='created_at_desc',
+                            label='ソート',
+                        ).props('dense outlined mini').classes('text-xs')
+                        sort_select.on('change', lambda e: refresh_todo_list())
+                    
+                    # フィルタリングオプション
+                    with ui.row().classes('gap-2'):
+                        show_completed_toggle = ui.toggle(
+                            options={True: '完了済みを表示', False: '未完了のみ'},
+                            value=True,
+                        ).props('dense mini').classes('text-xs')
+                        show_completed_toggle.on('change', lambda e: refresh_todo_list())
+                
+                # リフレッシュボタン
+                refresh_todo_btn = ui.button(icon='refresh', on_click=lambda: refresh_todo_list()).props('flat dense mini color=slate-400')
 
             # 設定タブの内容
             with ui.tab_panel(tab_set):
@@ -741,6 +788,315 @@ Context:
                             ui.label(c['date']).classes('text-[9px] text-slate-500')
                     # 削除ボタン
                     ui.button(icon='delete', on_click=lambda e, cid=c['id']: delete_chat_session(cid)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+
+    # --- ToDo関連機能 ---
+    def refresh_todo_stats():
+        """ToDo統計情報を更新"""
+        stats = backend.todo_service.get_todo_statistics()
+        
+        todo_stats_container.clear()
+        with todo_stats_container:
+            with ui.column().classes('items-center p-3 bg-slate-700/50 rounded-lg'):
+                ui.label(f'総数: {stats["total"]}').classes('text-xs font-bold text-slate-300')
+                with ui.row().classes('gap-4 mt-1'):
+                    ui.label(f'未完了: {stats["pending"]}').classes('text-xs text-amber-400')
+                    ui.label(f'完了: {stats["completed"]}').classes('text-xs text-green-400')
+            
+            # 優先度分布
+            with ui.column().classes('items-center p-3 bg-slate-700/50 rounded-lg'):
+                ui.label('優先度分布').classes('text-xs font-bold text-slate-300 mb-1')
+                with ui.row().classes('gap-2'):
+                    high_color = 'text-red-400' if stats["priority_distribution"]["high"] > 0 else 'text-slate-600'
+                    ui.label(f'高: {stats["priority_distribution"]["high"]}').classes(f'text-xs {high_color}')
+                    medium_color = 'text-yellow-400' if stats["priority_distribution"]["medium"] > 0 else 'text-slate-600'
+                    ui.label(f'中: {stats["priority_distribution"]["medium"]}').classes(f'text-xs {medium_color}')
+                    low_color = 'text-blue-400' if stats["priority_distribution"]["low"] > 0 else 'text-slate-600'
+                    ui.label(f'低: {stats["priority_distribution"]["low"]}').classes(f'text-xs {low_color}')
+
+    def refresh_todo_list():
+        """ToDoリストを更新"""
+        todo_list_container.clear()
+        
+        # ソートとフィルタリングオプションを取得
+        sort_value = sort_select.value
+        show_completed = show_completed_toggle.value
+        
+        # ソートオプションを解析
+        try:
+            sort_by, sort_order = sort_value.rsplit('_', 1)
+        except Exception as e:
+            print(f"Sort parsing error: {e}")
+            sort_by = 'created_at'
+            sort_order = 'desc'
+        
+        # ToDoリストを取得
+        todos = backend.todo_service.list_todos(
+            show_completed=show_completed,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        
+        # 統計情報を更新
+        refresh_todo_stats()
+        
+        with todo_list_container:
+            if not todos:
+                ui.label('ToDoがありません').classes('text-[10px] text-slate-500 italic p-2')
+            else:
+                for todo in todos:
+                    # 優先度に応じた色を設定
+                    priority_colors = {
+                        'high': 'border-red-500 bg-red-500/10',
+                        'medium': 'border-yellow-500 bg-yellow-500/10',
+                        'low': 'border-blue-500 bg-blue-500/10'
+                    }
+                    priority_color = priority_colors.get(todo.get('priority', 'medium'), 'border-slate-500')
+                    
+                    # 完了状態に応じたスタイル
+                    completed_style = 'opacity-50 line-through' if todo.get('completed', False) else ''
+                    
+                    with ui.card().classes(f'w-full p-3 border-l-4 {priority_color} {completed_style}'):
+                        with ui.row().classes('w-full items-start justify-between'):
+                            # 左側：ToDo内容
+                            with ui.column().classes('flex-grow gap-1'):
+                                # タイトル
+                                title = todo.get('title', '無題')
+                                title_label = ui.label(title if title else '無題').classes('text-sm font-semibold text-slate-200')
+                                
+                                # 説明
+                                if todo.get('description'):
+                                    desc = todo.get('description', '')
+                                    desc_label = ui.label(desc if desc else '').classes('text-xs text-slate-400 leading-relaxed')
+                                
+                                # メタ情報
+                                with ui.row().classes('items-center gap-3 mt-1'):
+                                    # 優先度
+                                    priority_labels = {
+                                        'high': '高',
+                                        'medium': '中',
+                                        'low': '低'
+                                    }
+                                    priority_label = priority_labels.get(todo.get('priority', 'medium'), '中')
+                                    priority_colors_classes = {
+                                        'high': 'text-red-400',
+                                        'medium': 'text-yellow-400',
+                                        'low': 'text-blue-400'
+                                    }
+                                    priority_color_class = priority_colors_classes.get(todo.get('priority', 'medium'), 'text-slate-400')
+                                    ui.label(f'優先度: {priority_label}').classes(f'text-xs {priority_color_class}')
+                                    
+                                    # 作成日時
+                                    created = todo.get('created_at', '')
+                                    created_label = ui.label(created[:10] if created else '').classes('text-xs text-slate-500')
+                                    
+                                    # 期限
+                                    due_date = todo.get('due_date')
+                                    if due_date:
+                                        # 期限が切れているかチェック
+                                        today = datetime.now().strftime('%Y-%m-%d')
+                                        try:
+                                            if due_date < today and not todo.get('completed', False):
+                                                due_color = 'text-red-400'
+                                            else:
+                                                due_color = 'text-slate-400'
+                                            ui.label(f'期限: {due_date}').classes(f'text-xs {due_color}')
+                                        except:
+                                            ui.label(f'期限: {due_date}').classes('text-xs text-slate-400')
+                            
+                            # 右側：操作ボタン
+                            with ui.row().classes('items-center gap-1'):
+                                # 完了チェックボックス
+                                completed = todo.get('completed', False)
+                                checkbox = ui.checkbox(
+                                    value=completed,
+                                    on_change=lambda e, tid=todo['id']: toggle_todo_completion(tid)
+                                ).props('dense color=green-5')
+                                
+                                # 編集ボタン
+                                ui.button(
+                                    icon='edit',
+                                    on_click=lambda e, tid=todo['id']: show_edit_todo_dialog(tid)
+                                ).props('flat dense mini color=slate-400 size=xs')
+                                
+                                # 削除ボタン
+                                ui.button(
+                                    icon='delete',
+                                    on_click=lambda e, tid=todo['id']: delete_todo(tid)
+                                ).props('flat dense mini color=red-400 size=xs')
+
+    def show_add_todo_dialog():
+        """ToDo追加ダイアログを表示"""
+        with ui.dialog() as dialog, ui.card().classes('w-[90vw] max-w-md'):
+            ui.label('新しいToDoを追加').classes('text-lg font-bold mb-4')
+            
+            # フォーム
+            with ui.column().classes('w-full gap-3'):
+                # タイトル
+                title_input = ui.input('タイトル', placeholder='ToDoのタイトルを入力').classes('w-full')
+                
+                # 説明
+                desc_input = ui.textarea('説明', placeholder='詳細な説明（任意）').classes('w-full h-20')
+                
+                # 優先度
+                priority_select = ui.select(
+                    options={'high': '高', 'medium': '中', 'low': '低'},
+                    value='medium',
+                    label='優先度'
+                ).classes('w-full')
+                
+                # 期限
+                due_date_input = ui.input(
+                    '期限',
+                    placeholder='YYYY-MM-DD（例: 2024-12-31）'
+                ).props('dense outlined').classes('w-full')
+            
+            # ボタン
+            with ui.row().classes('w-full justify-end gap-2 mt-4'):
+                ui.button('キャンセル', on_click=dialog.close).props('flat')
+                ui.button('追加', on_click=lambda: add_todo(
+                    title=title_input.value,
+                    description=desc_input.value,
+                    priority=priority_select.value,
+                    due_date=due_date_input.value,
+                    dialog=dialog
+                )).props('flat color=primary')
+        
+        dialog.open()
+
+    def show_edit_todo_dialog(todo_id):
+        """ToDo編集ダイアログを表示"""
+        todo = backend.todo_service.load_todo(todo_id)
+        if not todo:
+            ui.notify('ToDoが見つかりません', color='negative')
+            return
+        
+        with ui.dialog() as dialog, ui.card().classes('w-[90vw] max-w-md'):
+            ui.label('ToDoを編集').classes('text-lg font-bold mb-4')
+            
+            # フォーム
+            with ui.column().classes('w-full gap-3'):
+                # タイトル
+                title_input = ui.input('タイトル', value=todo.get('title', '')).classes('w-full')
+                
+                # 説明
+                desc_input = ui.textarea('説明', value=todo.get('description', '')).classes('w-full h-20')
+                
+                # 優先度
+                priority_select = ui.select(
+                    options={'high': '高', 'medium': '中', 'low': '低'},
+                    value=todo.get('priority', 'medium'),
+                    label='優先度'
+                ).classes('w-full')
+                
+                # 完了状態
+                completed_checkbox = ui.checkbox(
+                    label='完了',
+                    value=todo.get('completed', False)
+                ).classes('w-full')
+                
+                # 期限
+                due_date_input = ui.input(
+                    '期限',
+                    value=todo.get('due_date', ''),
+                    placeholder='YYYY-MM-DD（例: 2024-12-31）'
+                ).props('dense outlined').classes('w-full')
+            
+            # ボタン
+            with ui.row().classes('w-full justify-end gap-2 mt-4'):
+                ui.button('キャンセル', on_click=dialog.close).props('flat')
+                ui.button('更新', on_click=lambda: update_todo(
+                    todo_id=todo_id,
+                    title=title_input.value,
+                    description=desc_input.value,
+                    priority=priority_select.value,
+                    completed=completed_checkbox.value,
+                    due_date=due_date_input.value,
+                    dialog=dialog
+                )).props('flat color=primary')
+        
+        dialog.open()
+
+    def add_todo(title, description, priority, due_date, dialog):
+        """ToDoを追加"""
+        if not title or not title.strip():
+            ui.notify('タイトルを入力してください', color='negative')
+            return
+        
+        # 期限の形式をチェック
+        if due_date and not due_date.strip():
+            due_date = None
+        elif due_date:
+            try:
+                # 日付形式の検証
+                datetime.strptime(due_date.strip(), '%Y-%m-%d')
+            except ValueError:
+                ui.notify('期限の形式が正しくありません（YYYY-MMDD）', color='negative')
+                return
+        
+        # ToDoを追加
+        todo = backend.todo_service.add_todo(
+            title=title.strip(),
+            description=description.strip(),
+            priority=priority,
+            due_date=due_date.strip() if due_date else None
+        )
+        
+        ui.notify('ToDoを追加しました', color='positive')
+        dialog.close()
+        refresh_todo_list()
+
+    def update_todo(todo_id, title, description, priority, completed, due_date, dialog):
+        """ToDoを更新"""
+        if not title or not title.strip():
+            ui.notify('タイトルを入力してください', color='negative')
+            return
+        
+        # 期限の形式をチェック
+        if due_date and not due_date.strip():
+            due_date = None
+        elif due_date:
+            try:
+                # 日付形式の検証
+                datetime.strptime(due_date.strip(), '%Y-%m-%d')
+            except ValueError:
+                ui.notify('期限の形式が正しくありません（YYYY-MMDD）', color='negative')
+                return
+        
+        # ToDoを更新
+        updated = backend.todo_service.update_todo(
+            todo_id=todo_id,
+            title=title.strip(),
+            description=description.strip(),
+            priority=priority,
+            completed=completed,
+            due_date=due_date.strip() if due_date else None
+        )
+        
+        if updated:
+            ui.notify('ToDoを更新しました', color='positive')
+            dialog.close()
+            refresh_todo_list()
+        else:
+            ui.notify('更新に失敗しました', color='negative')
+
+    def toggle_todo_completion(todo_id):
+        """ToDoの完了状態を切り替え"""
+        updated = backend.todo_service.toggle_todo_completion(todo_id)
+        if updated:
+            refresh_todo_list()
+            ui.notify('状態を更新しました', color='positive')
+        else:
+            ui.notify('更新に失敗しました', color='negative')
+
+    def delete_todo(todo_id):
+        """ToDoを削除"""
+        if ui.confirm('このToDoを削除しますか？'):
+            success = backend.todo_service.delete_todo(todo_id)
+            if success:
+                ui.notify('ToDoを削除しました', color='positive')
+                refresh_todo_list()
+            else:
+                ui.notify('削除に失敗しました', color='negative')
 
     def load_chat_session(chat_id):
         data = backend.load_chat(chat_id)
