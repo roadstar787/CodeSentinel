@@ -115,6 +115,7 @@ class EventHandlers:
                         with ui.column().classes('gap-0'):
                             ui.label(c['title']).classes('text-xs text-slate-200 line-clamp-1')
                             ui.label(c['date']).classes('text-[9px] text-slate-500')
+                    # 削除ボタン：全ての引数を渡すように修正
                     ui.button(icon='delete', on_click=lambda e, cid=c['id'], s=session, cr=chat_results, clc=chat_list_container: self.delete_chat_session(cid, s, cr, clc)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
     
     def load_chat_session(self, session, chat_id, chat_results, chat_list_container):
