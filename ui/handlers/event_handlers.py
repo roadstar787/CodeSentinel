@@ -115,7 +115,7 @@ class EventHandlers:
                         with ui.column().classes('gap-0'):
                             ui.label(c['title']).classes('text-xs text-slate-200 line-clamp-1')
                             ui.label(c['date']).classes('text-[9px] text-slate-500')
-                    ui.button(icon='delete', on_click=lambda e, cid=c['id'], clc=chat_list_container: self.delete_chat_session(cid, clc)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+                    ui.button(icon='delete', on_click=lambda e, cid=c['id'], s=session, cr=chat_results, clc=chat_list_container: self.delete_chat_session(cid, s, cr, clc)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
     
     def load_chat_session(self, session, chat_id, chat_results, chat_list_container):
         """チャットセッションをロード"""
@@ -323,17 +323,13 @@ class EventHandlers:
     
     def delete_todo(self, todo_id, refresh_func):
         """ToDoを削除"""
-        async def confirm_delete():
-            # Confirmダイアログはasyncで待つか、簡略化
-            success = self.todo_service.delete_todo(todo_id)
-            if success:
-                ui.notify('ToDo deleted', color='positive')
-                refresh_func()
-            else:
-                ui.notify('Delete failed', color='negative')
-        
-        # 簡易的に即削除（実運用では確認ダイアログ推奨）
-        confirm_delete()
+        # 同期的な削除処理
+        success = self.todo_service.delete_todo(todo_id)
+        if success:
+            ui.notify('ToDo deleted', color='positive')
+            refresh_func()
+        else:
+            ui.notify('Delete failed', color='negative')
 
     def show_add_todo_dialog(self, refresh_func):
         """ToDo追加ダイアログを表示"""
