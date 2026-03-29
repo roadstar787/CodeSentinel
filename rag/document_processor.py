@@ -118,7 +118,17 @@ class DocumentProcessor:
         """
         try:
             loader = self.get_document_loader(file_path)
-            raw_documents = loader.load()
+            
+            # テキストファイルの場合はエンコーディングのフォールバックを試行
+            try:
+                raw_documents = loader.load()
+            except UnicodeDecodeError:
+                if isinstance(loader, TextLoader):
+                    # UTF-8で失敗した場合はCP932でリトライ
+                    loader.encoding = "cp932"
+                    raw_documents = loader.load()
+                else:
+                    raise
             
             # メタデータの追加
             for doc in raw_documents:

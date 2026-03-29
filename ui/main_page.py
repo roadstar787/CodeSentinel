@@ -5,7 +5,7 @@ from pathlib import Path
 
 from nicegui import ui, app
 from rag.base import RAGBackend
-from config import settings
+from config.config import settings
 
 
 async def main_page(backend: RAGBackend):

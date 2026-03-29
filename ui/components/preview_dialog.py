@@ -72,8 +72,15 @@ def create_preview_dialog():
         # フルパスがファイルでなければ何もしない
         if not full_path.is_file(): return
         try:
-            # ファイルの内容をUTF-8で読み込み
-            content = full_path.read_text(encoding='utf-8')
+            # ファイルの内容を読み込み (UTF-8 -> CP932 -> CP932 with replace)
+            try:
+                content = full_path.read_text(encoding='utf-8')
+            except UnicodeDecodeError:
+                try:
+                    content = full_path.read_text(encoding='cp932')
+                except UnicodeDecodeError:
+                    content = full_path.read_text(encoding='cp932', errors='replace')
+            
             search_state['full_content'] = content
             search_state['last_index'] = -1
             # プレビュータイトルを設定

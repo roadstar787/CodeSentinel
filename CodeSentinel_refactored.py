@@ -1,6 +1,7 @@
 # 必要なライブラリをインポートします。
 import asyncio
 import psutil
+import uuid
 from nicegui import ui, run, app
 from rag.base import RAGBackend
 from ui.main_page import main_page
@@ -8,7 +9,7 @@ from ui.components.sidebar import create_sidebar
 from ui.components.header import create_header
 from ui.components.preview_dialog import create_preview_dialog
 from ui.handlers.event_handlers import EventHandlers
-from config import settings
+from config.config import settings
 
 # --- システム設定 ---
 # アプリケーションの名前
@@ -84,7 +85,7 @@ async def main_page_handler():
     event_handlers = EventHandlers(backend, preview_open)
 
     # --- サイドバーの作成 ---
-    drawer, tabs = create_sidebar(backend, lambda: None)
+    drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels = create_sidebar(backend, lambda e: None)
 
     # --- ヘッダーの作成 ---
     mode_toggle = create_header(APP_NAME, APP_VERSION, lambda v: event_handlers.change_mode(v))
@@ -126,7 +127,7 @@ async def main_page_handler():
         from collections import Counter
         state['hit_counts'] = getattr(state, 'hit_counts', Counter())
         
-        def build_nodes(path, relative_to):
+        def build_nodes(path, relative_to, supported_exts):
             rel = str(path.relative_to(relative_to)) if path != relative_to else ""
             hits = state['hit_counts'].get(rel, 0)
             hit_label = f" • {hits}" if hits > 0 else ""
@@ -134,10 +135,18 @@ async def main_page_handler():
             
             node = {"id": rel if path.is_file() else None, "label": path.name + hit_label, "class": "hit-file" if hits > 0 else "", "style": bg_style}
             if path.is_dir():
-                # 表示対象の拡張子
-                supported = {".py", ".cs", ".cpp", ".h", ".hpp", ".json", ".pdf", ".md", ".xlsx", ".pptx"}
-                node["children"] = [build_nodes(p, relative_to) for p in sorted(path.iterdir())
-                                    if not p.name.startswith('.') and (p.is_dir() or p.suffix.lower() in supported)]
+                # そのフォルダ自体に表示対象があるか、またはサブフォルダがあるか
+                children = []
+                for p in sorted(path.iterdir()):
+                    if p.name.startswith('.'): continue
+                    if p.is_dir():
+                        child_node = build_nodes(p, relative_to, supported_exts)
+                        if child_node["children"] or child_node["id"]: # 子要素がある場合のみ追加
+                            children.append(child_node)
+                    elif p.suffix.lower() in supported_exts:
+                        children.append(build_nodes(p, relative_to, supported_exts))
+                
+                node["children"] = children
                 node["icon"] = "folder"
             else:
                 ext = path.suffix.lower()
@@ -149,24 +158,37 @@ async def main_page_handler():
             return node
         
         try:
+            # 拡張子の定義
+            CODE_EXTS = {".py", ".cs", ".cpp", ".h", ".hpp", ".json"}
+            DOCS_EXTS = {".pdf", ".md", ".xlsx", ".pptx"}
+
             # Code Directory
-            from pathlib import Path
             target_dir = backend.config.paths.get_target_dir()
             if target_dir.exists():
-                tree_data = [build_nodes(target_dir, target_dir)]
-                with tree_container:
-                    ui.label('CODE').classes('text-[9px] text-slate-500 mt-2 uppercase tracking-tighter')
-                    t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: preview_open(e.value, str(target_dir))).props('dark dense expand-all')
-                    t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
+                tree_data = [build_nodes(target_dir, target_dir, CODE_EXTS)]
+                # ルートフォルダに有効な子がいない場合は表示しない（またはフォルダのみ表示）
+                if tree_data[0]["children"] or tree_data[0]["id"]:
+                    with tree_container:
+                        ui.label('CODE').classes('text-[9px] text-slate-500 mt-2 uppercase tracking-tighter')
+                        t = ui.tree(nodes=tree_data, label_key='label', on_select=lambda e: preview_open(e.value, str(target_dir))).props('dark dense expand-all')
+                        t.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
             
             # Document Directory
-            doc_dir = backend.config.paths.get_doc_dir()
-            if doc_dir.exists():
-                doc_tree_data = [build_nodes(doc_dir, doc_dir)]
-                with tree_container:
-                    ui.label('DOCS').classes('text-[9px] text-slate-500 mt-2 uppercase tracking-tighter')
-                    t_doc = ui.tree(nodes=doc_tree_data, label_key='label', on_select=lambda e: preview_open(e.value, str(doc_dir))).props('dark dense expand-all')
-                    t_doc.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
+            doc_dir_str = backend.config.paths.doc_dir
+            # doc_dirが未設定（空）でtarget_dirと同じディレクトリを指す場合は重複を避けるため構築しない
+            if doc_dir_str:
+                doc_dir = backend.config.paths.get_doc_dir()
+                if doc_dir.exists():
+                    doc_tree_data = [build_nodes(doc_dir, doc_dir, DOCS_EXTS)]
+                    if doc_tree_data[0]["children"] or doc_tree_data[0]["id"]:
+                        with tree_container:
+                            ui.label('DOCS').classes('text-[9px] text-slate-500 mt-2 uppercase tracking-tighter')
+                            t_doc = ui.tree(nodes=doc_tree_data, label_key='label', on_select=lambda e: preview_open(e.value, str(doc_dir))).props('dark dense expand-all')
+                            t_doc.add_slot('default-header', '<div :class="props.node.class" :style="props.node.style" style="border-radius: 4px; padding: 2px 6px;">{{ props.node.label }}</div>')
+            elif not doc_dir_str:
+                # doc_dirが未設定の場合でも、現在のプロジェクトルートにドキュメントがあれば表示したい場合のロジック
+                # ここでは明示的に指定がない場合は表示しない（CODEセクションとの重複を避けるため）
+                pass
         except Exception as e:
             print(f"Explorer Refresh Error: {e}")
 
@@ -207,24 +229,24 @@ async def main_page_handler():
         input_field = element
 
     # --- タブコンテンツの設定 ---
-    with ui.tab_panels(tabs, value=tabs.children[0]):
+    with tab_panels:
         # エクスプローラータブ
-        with ui.tab_panel(tabs.children[0]):
+        with ui.tab_panel(tab_exp):
             ui.label('EXPLORER').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
             tree_container = ui.column().classes('w-full gap-0')
 
         # チャット履歴タブ
-        with ui.tab_panel(tabs.children[1]):
+        with ui.tab_panel(tab_cht):
             with ui.row().classes('w-full items-center justify-between mb-4'):
                 ui.label('HISTORY').classes('text-[10px] text-slate-600 tracking-widest')
-                ui.button(icon='add', on_click=lambda: event_handlers.start_new_chat(chat_results, lambda: refresh_chat_list())).props('flat round dense color=slate-400')
+                ui.button(icon='add', on_click=lambda: start_new_chat()).props('flat round dense color=slate-400')
             chat_list_container = ui.column().classes('w-full gap-2')
 
         # ToDoリストタブ
-        with ui.tab_panel(tabs.children[2]):
+        with ui.tab_panel(tab_tod):
             with ui.row().classes('w-full items-center justify-between mb-4'):
                 ui.label('TODOS').classes('text-[10px] text-slate-600 tracking-widest')
-                ui.button(icon='add', on_click=lambda: ui.notify('ToDo追加機能は実装中')).props('flat round dense color=slate-400')
+                ui.button(icon='add', on_click=lambda: event_handlers.show_add_todo_dialog(lambda: event_handlers.refresh_todo_list(todo_list_container, todo_stats_container, sort_select, show_completed_toggle))).props('flat round dense color=slate-400')
             
             todo_stats_container = ui.row().classes('w-full gap-4 mb-4')
             todo_list_container = ui.column().classes('w-full gap-2')
@@ -255,15 +277,15 @@ async def main_page_handler():
             refresh_todo_btn = ui.button(icon='refresh', on_click=lambda: event_handlers.refresh_todo_list(todo_list_container, todo_stats_container, sort_select, show_completed_toggle)).props('flat dense mini color=slate-400')
 
         # 設定タブ
-        with ui.tab_panel(tabs.children[3]):
+        with ui.tab_panel(tab_set):
             ui.label('CONFIG').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
-            path_input = ui.input('Code Path', value="").props('dark dense outlined').classes('w-full mb-2')
-            doc_path_input = ui.input('Doc Path', value="").props('dark dense outlined').classes('w-full mb-4')
+            path_input = ui.input('Code Path', value=backend.config.paths.target_dir).props('dark dense outlined').classes('w-full mb-2')
+            doc_path_input = ui.input('Doc Path', value=backend.config.paths.doc_dir).props('dark dense outlined').classes('w-full mb-4')
             ui.button('SAVE PATHS', on_click=lambda: event_handlers.save_settings(path_input, doc_path_input, refresh_explorer)).props('flat border').classes('w-full text-xs mb-4')
             rebuild_btn = ui.button('REBUILD', on_click=lambda: event_handlers.rebuild_task(rebuild_btn, idx_label, refresh_explorer)).props('flat icon=refresh').classes('w-full border border-slate-800 text-xs')
 
         # システムステータスタブ
-        with ui.tab_panel(tabs.children[4]).classes('p-6'):
+        with ui.tab_panel(tab_sts).classes('p-6'):
             ui.label('SYSTEM STATUS').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
             
             with ui.element('div').classes('status-item'):
@@ -316,30 +338,31 @@ async def main_page_handler():
     # --- チャット履歴関連関数 ---
     def refresh_chat_list():
         """チャットリストを更新"""
-        nonlocal chat_list_container
+        nonlocal chat_list_container, session, chat_results
         if chat_list_container:
-            event_handlers.refresh_chat_list(chat_list_container)
+            event_handlers.refresh_chat_list(session, chat_results, chat_list_container)
 
     def load_chat_session(chat_id):
         """チャットセッションをロード"""
-        nonlocal chat_results
-        event_handlers.load_chat_session(chat_id, chat_results)
+        nonlocal chat_results, chat_list_container, session
+        event_handlers.load_chat_session(session, chat_id, chat_results, chat_list_container)
 
     def start_new_chat():
         """新しいチャットを開始"""
-        nonlocal chat_results
-        event_handlers.start_new_chat(chat_results, refresh_chat_list)
+        nonlocal chat_results, session, chat_list_container
+        event_handlers.start_new_chat(session, chat_results, chat_list_container)
 
     def delete_chat_session(chat_id):
         """チャットセッションを削除"""
-        event_handlers.delete_chat_session(chat_id)
+        nonlocal chat_list_container, session, chat_results
+        event_handlers.delete_chat_session(chat_id, session, chat_results, chat_list_container)
 
     # --- フッター ---
     with ui.footer().classes('bg-transparent'):
         with ui.row().classes('w-full max-w-4xl mx-auto p-4 bg-white border border-slate-300 items-end gap-2 shadow-lg rounded-t-xl'):
             input_field = ui.textarea(placeholder='Ask...').classes('flex-grow text-sm').props('borderless autogrow')
             set_input_field(input_field)  # イベントハンドラにinput_fieldを登録
-            ui.button(on_click=lambda: event_handlers.handle_query(input_field, chat_results, state, refresh_explorer)).props('flat icon=send color=indigo-600')
+            ui.button(on_click=lambda: event_handlers.handle_query(session, input_field, chat_results, state, refresh_explorer, chat_list_container)).props('flat icon=send color=indigo-600')
 
     # 初期化
     backend.load_db()
@@ -350,6 +373,7 @@ async def main_page_handler():
     
     refresh_explorer()
     refresh_chat_list()
+    event_handlers.refresh_todo_list(todo_list_container, todo_stats_container, sort_select, show_completed_toggle)
     asyncio.create_task(update_status_loop())
 
 # アプリケーションを実行

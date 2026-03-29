@@ -11,7 +11,7 @@ import httpx
 
 from rag.repositories import VectorStoreRepository, EmbeddingService, FileStorageRepository
 from rag.document_processor import DocumentProcessor
-from config import Settings
+from config.config import Settings
 from rag.interfaces import IDocumentService
 
 

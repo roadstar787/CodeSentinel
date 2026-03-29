@@ -4,7 +4,7 @@
 """
 
 from typing import Dict, Any, Optional
-from config import Settings
+from config.config import Settings
 from rag.interfaces import IChatService, ITodoService, IDocumentService, ISettingsService
 from rag.chat_service import ChatService
 from rag.document_service import DocumentService

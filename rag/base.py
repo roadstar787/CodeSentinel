@@ -6,7 +6,7 @@ CodeSentinelのRAG機能の基底クラスを定義します。
 
 from typing import Dict, Any, List, Optional
 
-from config import Settings, settings
+from config.config import Settings, settings
 from rag.service_container import ServiceContainer
 from rag.interfaces import IChatService, ITodoService, IDocumentService
 
@@ -210,3 +210,11 @@ class RAGBackend:
             ユーザー設定
         """
         return self.config.to_user_storage()
+    
+    @property
+    def vector_store(self):
+        """ベクトルストアの実体を取得 (UI互換性用)"""
+        doc_service = self.get_document_service()
+        if doc_service and doc_service.vector_store:
+            return doc_service.vector_store.vectorstore
+        return None

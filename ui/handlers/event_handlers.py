@@ -1,13 +1,14 @@
 # イベントハンドラ
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from nicegui import ui, run
+from nicegui import ui, run, app
 from rag.base import RAGBackend
 from rag.chat_service import ChatService
-from todo_service import TodoService
+from rag.todo_service import TodoService
 
 
 class EventHandlers:
@@ -16,19 +17,18 @@ class EventHandlers:
     def __init__(self, backend: RAGBackend, preview_open_func):
         self.backend = backend
         self.preview_open = preview_open_func
-        self.chat_service = backend.chat_service
-        self.todo_service = backend.todo_service
+        self.chat_service = backend.get_chat_service()
+        self.todo_service = backend.get_todo_service()
     
     # --- チャット関連イベントハンドラ ---
     
-    async def handle_query(self, input_field, chat_results, state, refresh_explorer_func):
+    async def handle_query(self, session, input_field, chat_results, state, refresh_explorer_func, chat_list_container):
         """クエリ処理"""
         query = input_field.value.strip()
         if not query: return
         input_field.value = ''
         
         # 履歴に追加
-        session = {'history': self.backend.get_chat_history()}
         session['history'].append({"role": "user", "content": query})
 
         with chat_results:
@@ -51,12 +51,16 @@ class EventHandlers:
             with source_row:
                 for p, t in unique_hits:
                     b_dir = self.backend.config.paths.get_target_dir() if t == 'code' else self.backend.config.paths.get_doc_dir()
-                    self.preview_open(p, str(b_dir))
+                    # ボタンを作成し、クリック時にプレビューを開くように変更
+                    ui.button(f"📄 {p}", on_click=lambda e, fp=p, bd=str(b_dir): self.preview_open(fp, bd)) \
+                        .props('flat dense size=sm color=indigo-400 font-bold').classes('text-[10px] bg-indigo-50/50 px-2 rounded border border-indigo-100/50 hover:bg-indigo-100 transition-colors')
             
             context = self.chat_service.format_context(docs)
             llm_response = await self.chat_service.generate_response(query, context, self.backend.mode)
             
             full = llm_response['content']
+            md.set_content(full)  # 回答を画面に反映
+            ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')  # 最下部までスクロール
             # Gap データの解析と可視化
             if self.backend.mode == 'Gap' and llm_response['gaps']:
                 self._display_gap_analysis(llm_response['gaps'], chat_results)
@@ -70,6 +74,7 @@ class EventHandlers:
             session['history'].append({"role": "ai", "content": full, "sources": unique_hits})
             title = query[:20] + ("..." if len(query) > 20 else "")
             self.backend.save_chat(session['id'], session['history'], title if len(session['history']) <= 2 else None)
+            self.refresh_chat_list(session, chat_results, chat_list_container)
             
         except Exception as e:
             md.set_content(f"Error: {str(e)}")
@@ -92,7 +97,7 @@ class EventHandlers:
     
     # --- チャット履歴関連イベントハンドラ ---
     
-    def refresh_chat_list(self, chat_list_container):
+    def refresh_chat_list(self, session, chat_results, chat_list_container):
         """チャットリストを更新"""
         chat_list_container.clear()
         chats = self.backend.list_chats()
@@ -101,19 +106,25 @@ class EventHandlers:
                 ui.label('No history').classes('text-[10px] text-slate-500 italic p-2')
             for c in chats:
                 with ui.row().classes('w-full items-center gap-1 group'):
-                    btn = ui.button(on_click=lambda e, cid=c['id']: self.load_chat_session(cid)).props('flat no-caps dense').classes('flex-grow text-left justify-start px-2 py-1 rounded hover:bg-slate-700/50')
+                    # 現在選択中のチャットを強調
+                    is_current = (c['id'] == session.get('id'))
+                    bg_class = 'bg-slate-700/80 border-l-2 border-indigo-500' if is_current else 'hover:bg-slate-700/50'
+                    
+                    btn = ui.button(on_click=lambda e, cid=c['id'], s=session, cr=chat_results, clc=chat_list_container: self.load_chat_session(s, cid, cr, clc)).props('flat no-caps dense').classes(f'flex-grow text-left justify-start px-2 py-1 rounded {bg_class}')
                     with btn:
                         with ui.column().classes('gap-0'):
                             ui.label(c['title']).classes('text-xs text-slate-200 line-clamp-1')
                             ui.label(c['date']).classes('text-[9px] text-slate-500')
-                    ui.button(icon='delete', on_click=lambda e, cid=c['id']: self.delete_chat_session(cid)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+                    ui.button(icon='delete', on_click=lambda e, cid=c['id'], clc=chat_list_container: self.delete_chat_session(cid, clc)).props('flat round dense size=sm color=red-4').classes('opacity-0 group-hover:opacity-100 transition-opacity')
     
-    def load_chat_session(self, chat_id, chat_results):
+    def load_chat_session(self, session, chat_id, chat_results, chat_list_container):
         """チャットセッションをロード"""
         data = self.backend.load_chat(chat_id)
         if not data: return
         
-        session = {'id': chat_id, 'history': data.get('messages', [])}
+        # セッション情報を更新
+        session['id'] = chat_id
+        session['history'] = data.get('messages', [])
         
         chat_results.clear()
         with chat_results:
@@ -122,29 +133,39 @@ class EventHandlers:
                     ui.label(f"Q: {msg['content']}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
                 else:
                     ui.markdown(msg['content']).classes('text-slate-700 text-sm p-4 w-full border-b')
-                    ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=msg['content']: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
-                        .props('flat dense color=slate-400 size=sm').classes('self-end mt-[-10px] mb-4 opacity-50 hover:opacity-100')
+                    with ui.row().classes('w-full justify-end items-center mb-4'):
+                        ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=msg['content']: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
+                            .props('flat dense color=slate-400 size=sm').classes('opacity-50 hover:opacity-100')
                     
                     if msg.get('sources'):
-                        with ui.row().classes('gap-2 mt-1'):
+                        with ui.row().classes('gap-2 mt-[-10px] mb-4 ml-4'):
                             for p, t in msg['sources']:
                                 b_dir = self.backend.config.paths.get_target_dir() if t == 'code' else self.backend.config.paths.get_doc_dir()
-                                self.preview_open(p, str(b_dir))
+                                ui.button(f"📄 {p}", on_click=lambda e, fp=p, bd=str(b_dir): self.preview_open(fp, bd)) \
+                                    .props('flat dense size=sm color=indigo-400 font-bold').classes('text-[10px] bg-indigo-50/50 px-2 rounded border border-indigo-100/50 hover:bg-indigo-100 transition-colors')
+        
         ui.notify(f"Chat loaded: {data['title']}")
-        self.refresh_chat_list(chat_list_container)
+        # リストも更新して選択ハイライトを反映
+        self.refresh_chat_list(session, chat_results, chat_list_container)
     
-    def start_new_chat(self, chat_results, refresh_chat_list_func):
+    def start_new_chat(self, session, chat_results, chat_list_container):
         """新しいチャットを開始"""
-        new_id = str(uuid.uuid4())
-        session = {'id': new_id, 'history': []}
+        session['id'] = str(uuid.uuid4())
+        session['history'] = []
         chat_results.clear()
-        ui.notify("New chat started")
-        refresh_chat_list_func()
+        # app.storage.user.update(current_chat_id=session['id']) # 必要に応じて
+        ui.notify("New chat session started")
+        self.refresh_chat_list(session, chat_results, chat_list_container)
     
-    def delete_chat_session(self, chat_id):
+    def delete_chat_session(self, chat_id, session, chat_results, chat_list_container):
         """チャットセッションを削除"""
         self.backend.delete_chat(chat_id)
         ui.notify("Chat deleted")
+        if session.get('id') == chat_id:
+            self.start_new_chat(session, chat_results, chat_list_container)
+        else:
+            self.refresh_chat_list(session, chat_results, chat_list_container)
+
     
     # --- ToDo関連イベントハンドラ ---
     
@@ -177,10 +198,10 @@ class EventHandlers:
         
         with todo_list_container:
             if not todos:
-                ui.label('ToDoがありません').classes('text-[10px] text-slate-500 italic p-2')
+                ui.label('No tasks found').classes('text-[10px] text-slate-500 italic p-2')
             else:
                 for todo in todos:
-                    self._render_todo_item(todo, todo_list_container)
+                    self._render_todo_item(todo, todo_list_container, todo_stats_container, sort_select, show_completed_toggle)
     
     def _refresh_todo_stats(self, todo_stats_container):
         """ToDo統計情報を更新"""
@@ -204,7 +225,7 @@ class EventHandlers:
                     low_color = 'text-blue-400' if stats["priority_distribution"]["low"] > 0 else 'text-slate-600'
                     ui.label(f'低: {stats["priority_distribution"]["low"]}').classes(f'text-xs {low_color}')
     
-    def _render_todo_item(self, todo: Dict, todo_list_container):
+    def _render_todo_item(self, todo: Dict, todo_list_container, todo_stats_container, sort_select, show_completed_toggle):
         """ToDoアイテムを表示"""
         # 優先度に応じた色を設定
         priority_colors = {
@@ -217,6 +238,10 @@ class EventHandlers:
         # 完了状態に応じたスタイル
         completed_style = 'opacity-50 line-through' if todo.get('completed', False) else ''
         
+        # リフレッシュ用クロージャ
+        def refresh():
+            self.refresh_todo_list(todo_list_container, todo_stats_container, sort_select, show_completed_toggle)
+
         with todo_list_container:
             with ui.card().classes(f'w-full p-3 border-l-4 {priority_color} {completed_style}'):
                 with ui.row().classes('w-full items-start justify-between'):
@@ -270,39 +295,115 @@ class EventHandlers:
                     with ui.row().classes('items-center gap-1'):
                         # 完了チェックボックス
                         completed = todo.get('completed', False)
-                        checkbox = ui.checkbox(
+                        ui.checkbox(
                             value=completed,
-                            on_change=lambda e, tid=todo['id']: self.toggle_todo_completion(tid)
+                            on_change=lambda e, tid=todo['id']: self.toggle_todo_completion(tid, refresh)
                         ).props('dense color=green-5')
                         
                         # 編集ボタン
                         ui.button(
                             icon='edit',
-                            on_click=lambda e, tid=todo['id']: self.show_edit_todo_dialog(tid)
+                            on_click=lambda e, t=todo: self.show_edit_todo_dialog(t, refresh)
                         ).props('flat dense mini color=slate-400 size=xs')
                         
                         # 削除ボタン
                         ui.button(
                             icon='delete',
-                            on_click=lambda e, tid=todo['id']: self.delete_todo(tid)
+                            on_click=lambda e, tid=todo['id']: self.delete_todo(tid, refresh)
                         ).props('flat dense mini color=red-400 size=xs')
     
-    def toggle_todo_completion(self, todo_id):
+    def toggle_todo_completion(self, todo_id, refresh_func):
         """ToDoの完了状態を切り替え"""
         updated = self.todo_service.toggle_todo_completion(todo_id)
         if updated:
-            ui.notify('状態を更新しました', color='positive')
+            ui.notify('Status updated', color='positive')
+            refresh_func()
         else:
-            ui.notify('更新に失敗しました', color='negative')
+            ui.notify('Update failed', color='negative')
     
-    def delete_todo(self, todo_id):
+    def delete_todo(self, todo_id, refresh_func):
         """ToDoを削除"""
-        if ui.confirm('このToDoを削除しますか？'):
+        async def confirm_delete():
+            # Confirmダイアログはasyncで待つか、簡略化
             success = self.todo_service.delete_todo(todo_id)
             if success:
-                ui.notify('ToDoを削除しました', color='positive')
+                ui.notify('ToDo deleted', color='positive')
+                refresh_func()
             else:
-                ui.notify('削除に失敗しました', color='negative')
+                ui.notify('Delete failed', color='negative')
+        
+        # 簡易的に即削除（実運用では確認ダイアログ推奨）
+        confirm_delete()
+
+    def show_add_todo_dialog(self, refresh_func):
+        """ToDo追加ダイアログを表示"""
+        with ui.dialog() as dialog, ui.card().classes('w-96'):
+            ui.label('Add New ToDo').classes('text-lg font-bold mb-4')
+            title_input = ui.input('Title').classes('w-full mb-2')
+            desc_input = ui.textarea('Description').classes('w-full mb-2')
+            
+            with ui.row().classes('w-full mb-4 items-center'):
+                ui.label('Priority:').classes('text-sm')
+                priority_toggle = ui.toggle({
+                    'low': 'Low', 
+                    'medium': 'Med', 
+                    'high': 'High'
+                }, value='medium').props('dense unelevated')
+            
+            due_input = ui.input('Due Date (YYYY-MM-DD)').classes('w-full mb-4')
+            
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Cancel', on_click=dialog.close).props('flat')
+                async def save():
+                    if not title_input.value:
+                        ui.notify('Title is required', color='warning')
+                        return
+                    success = self.todo_service.add_todo(
+                        title=title_input.value,
+                        description=desc_input.value,
+                        priority=priority_toggle.value,
+                        due_date=due_input.value if due_input.value else None
+                    )
+                    if success:
+                        ui.notify('ToDo added', color='positive')
+                        refresh_func()
+                        dialog.close()
+                ui.button('Save', on_click=save).props('unelevated color=indigo')
+        dialog.open()
+
+    def show_edit_todo_dialog(self, todo, refresh_func):
+        """ToDo編集ダイアログを表示"""
+        with ui.dialog() as dialog, ui.card().classes('w-96'):
+            ui.label('Edit ToDo').classes('text-lg font-bold mb-4')
+            title_input = ui.input('Title', value=todo.get('title', '')).classes('w-full mb-2')
+            desc_input = ui.textarea('Description', value=todo.get('description', '')).classes('w-full mb-2')
+            
+            with ui.row().classes('w-full mb-4 items-center'):
+                ui.label('Priority:').classes('text-sm')
+                priority_toggle = ui.toggle({
+                    'low': 'Low', 
+                    'medium': 'Med', 
+                    'high': 'High'
+                }, value=todo.get('priority', 'medium')).props('dense unelevated')
+            
+            due_input = ui.input('Due Date', value=todo.get('due_date', '')).classes('w-full mb-4')
+            
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Cancel', on_click=dialog.close).props('flat')
+                async def save():
+                    success = self.todo_service.update_todo(
+                        todo['id'],
+                        title=title_input.value,
+                        description=desc_input.value,
+                        priority=priority_toggle.value,
+                        due_date=due_input.value if due_input.value else None
+                    )
+                    if success:
+                        ui.notify('ToDo updated', color='positive')
+                        refresh_func()
+                        dialog.close()
+                ui.button('Update', on_click=save).props('unelevated color=indigo')
+        dialog.open()
     
     # --- 設定関連イベントハンドラ ---
     

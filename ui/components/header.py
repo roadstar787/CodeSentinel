@@ -18,3 +18,5 @@ def create_header(app_name: str = None, version: str = None, on_toggle_mode=None
         with ui.row().classes('items-center gap-2'):
             ui.label('MODE:').classes('text-[10px] text-slate-400')
             mode_toggle = ui.toggle({'Normal': 'Q&A', 'Gap': 'GAP'}, value='Normal', on_change=on_toggle_mode).props('dense unelevated toggle-color=indigo-600 color=slate-200 text-color=slate-600').classes('text-[10px]')
+        
+        return mode_toggle
