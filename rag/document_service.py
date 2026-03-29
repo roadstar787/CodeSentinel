@@ -9,10 +9,10 @@ from typing import Dict, Any, List, Optional
 
 import httpx
 
-from .vector_store import VectorStoreManager
-from .document_processor import DocumentProcessor
-from ..config import Settings
-from .interfaces import IDocumentService
+from rag.repositories import VectorStoreRepository, EmbeddingService, FileStorageRepository
+from rag.document_processor import DocumentProcessor
+from config import Settings
+from rag.interfaces import IDocumentService
 
 
 class DocumentService(IDocumentService):
@@ -26,7 +26,13 @@ class DocumentService(IDocumentService):
             config: 設定オブジェクト
         """
         self.config = config
-        self.vector_store = None
+        
+        # リポジトリの初期化
+        self.file_storage = FileStorageRepository()
+        self.vector_store = VectorStoreRepository(config)
+        self.embedding_service = EmbeddingService(config)
+        
+        # ドキュメントプロセッサ
         self.document_processor = DocumentProcessor(config)
         
         # 統計情報
@@ -46,7 +52,7 @@ class DocumentService(IDocumentService):
     def _initialize_directories(self):
         """必要なディレクトリの初期化"""
         # ベクトルストアディレクトリ
-        self.config.paths.db_full_path.mkdir(exist_ok=True)
+        self.file_storage.mkdir(str(self.config.paths.db_full_path))
     
     async def check_lm_studio(self) -> bool:
         """
@@ -82,11 +88,11 @@ class DocumentService(IDocumentService):
         Returns:
             bool: ロードできた場合はTrue
         """
-        if os.path.exists(self.config.paths.db_path):
+        if self.file_storage.exists(self.config.paths.db_path):
             try:
-                self.vector_store = VectorStoreManager.load_local(
+                self.vector_store = VectorStoreRepository.load_local(
                     self.config.paths.db_path, 
-                    self.config.lm_studio,
+                    self.config,
                     allow_dangerous_deserialization=True
                 )
                 self.stats["total_chunks"] = self.vector_store.index.ntotal

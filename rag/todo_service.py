@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from rag.repositories import FileStorageRepository, JsonRepository
+
 
 class TodoService:
     """ToDoリストサービスを提供するクラス"""
@@ -21,7 +23,13 @@ class TodoService:
             todo_dir_path: ToDoリスト保存ディレクトリ
         """
         self.todo_dir = todo_dir_path
-        self.todo_dir.mkdir(exist_ok=True)
+        
+        # リポジトリの初期化
+        self.file_storage = FileStorageRepository()
+        self.json_repo = JsonRepository(self.file_storage)
+        
+        # ディレクトリの作成
+        self.file_storage.mkdir(str(todo_dir_path))
     
     def generate_todo_id(self) -> str:
         """
@@ -124,11 +132,8 @@ class TodoService:
         Returns:
             削除できたかどうか
         """
-        path = self.todo_dir / f"{todo_id}.json"
-        if path.exists():
-            path.unlink()
-            return True
-        return False
+        path = str(self.todo_dir / f"{todo_id}.json")
+        return self.json_repo.delete(path)
     
     def load_todo(self, todo_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -140,11 +145,8 @@ class TodoService:
         Returns:
             ToDoデータ
         """
-        path = self.todo_dir / f"{todo_id}.json"
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return None
+        path = str(self.todo_dir / f"{todo_id}.json")
+        return self.json_repo.load(path)
     
     def list_todos(
         self, 
@@ -164,12 +166,14 @@ class TodoService:
             ToDoリスト
         """
         todos = []
-        for f in self.todo_dir.glob("*.json"):
+        # JSONファイルをリストアップ
+        json_files = self.file_storage.list_files(str(self.todo_dir), "*.json")
+        
+        for json_path in json_files:
             try:
-                with open(f, "r", encoding="utf-8") as j:
-                    data = json.load(j)
-                    if show_completed or not data.get("completed", False):
-                        todos.append(data)
+                todo_data = self.json_repo.load(json_path)
+                if todo_data and (show_completed or not todo_data.get("completed", False)):
+                    todos.append(todo_data)
             except Exception:
                 continue
         
@@ -215,9 +219,8 @@ class TodoService:
             todo_id: ToDo ID
             todo_data: ToDoデータ
         """
-        path = self.todo_dir / f"{todo_id}.json"
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(todo_data, f, ensure_ascii=False, indent=2)
+        path = str(self.todo_dir / f"{todo_id}.json")
+        self.json_repo.save(todo_data, path)
     
     def get_todo_statistics(self) -> Dict[str, Any]:
         """

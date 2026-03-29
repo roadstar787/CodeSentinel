@@ -23,7 +23,7 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader
 )  # 各種ファイルローダー
 from config import Settings  # 設定モジュール
-from todo_service import TodoService  # ToDoサービス
+from rag.todo_service import TodoService  # ToDoサービス
 
 # --- システム設定 ---
 # アプリケーションの名前

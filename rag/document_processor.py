@@ -19,7 +19,7 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader
 )
 
-from ..config import Settings
+from config import Settings
 
 
 @dataclass

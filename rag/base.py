@@ -6,9 +6,9 @@ CodeSentinelのRAG機能の基底クラスを定義します。
 
 from typing import Dict, Any, List, Optional
 
-from ..config import Settings, settings
-from .service_container import ServiceContainer
-from .interfaces import IChatService, ITodoService, IDocumentService
+from config import Settings, settings
+from rag.service_container import ServiceContainer
+from rag.interfaces import IChatService, ITodoService, IDocumentService
 
 
 class RAGBackend:

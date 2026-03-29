@@ -4,11 +4,11 @@
 """
 
 from typing import Dict, Any, Optional
-from ..config import Settings
-from .interfaces import IChatService, ITodoService, IDocumentService, ISettingsService
-from .chat_service import ChatService
-from .document_service import DocumentService
-from todo_service import TodoService
+from config import Settings
+from rag.interfaces import IChatService, ITodoService, IDocumentService, ISettingsService
+from rag.chat_service import ChatService
+from rag.document_service import DocumentService
+
 
 
 class ServiceContainer:
@@ -31,6 +31,7 @@ class ServiceContainer:
             return
         
         # 各サービスの初期化
+        from rag.todo_service import TodoService
         self._services['chat'] = ChatService(self._config)
         self._services['document'] = DocumentService(self._config)
         self._services['todo'] = TodoService(self._config.paths.todo_dir_path)

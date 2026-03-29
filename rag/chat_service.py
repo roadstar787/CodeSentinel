@@ -13,7 +13,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 
-from ..config import Settings
+from config import Settings
+from rag.repositories import FileStorageRepository, JsonRepository
 
 
 class ChatService:
@@ -27,12 +28,19 @@ class ChatService:
             config: 設定オブジェクト
         """
         self.config = config
-        self.chat_dir = config.paths.chat_dir
+        
+        # リポジトリの初期化
+        self.file_storage = FileStorageRepository()
+        self.json_repo = JsonRepository(self.file_storage)
+        
+        # チャットディレクトリの作成
+        self.chat_dir = Path(str(config.paths.chat_dir))
+        self.file_storage.mkdir(str(self.chat_dir))
         
         # LLM初期化
         self.llm = ChatOpenAI(
             base_url=config.lm_studio.url,
-            api_key=config.lm_studio.api_key,
+            api_key=str(config.lm_studio.api_key),
             temperature=config.rag.temperature,
             streaming=True
         )
@@ -192,14 +200,14 @@ Context:
             messages: メッセージリスト
             title: タイトル
         """
-        path = self.chat_dir / f"{chat_id}.json"
+        path = str(self.chat_dir / f"{chat_id}.json")
         
         # 既存データの読み込み
         existing_title = "New Chat"
-        if path.exists():
+        if self.file_storage.exists(path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    old_data = json.load(f)
+                old_data = self.json_repo.load(path)
+                if old_data:
                     existing_title = old_data.get("title", existing_title)
             except Exception:
                 pass
@@ -210,8 +218,7 @@ Context:
             "messages": messages
         }
         
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        self.json_repo.save(data, path)
     
     def load_chat_history(self, chat_id: str) -> Optional[Dict]:
         """
@@ -223,11 +230,8 @@ Context:
         Returns:
             チャットデータ
         """
-        path = self.chat_dir / f"{chat_id}.json"
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return None
+        path = str(self.chat_dir / f"{chat_id}.json")
+        return self.json_repo.load(path)
     
     def delete_chat_history(self, chat_id: str):
         """
@@ -236,9 +240,8 @@ Context:
         Args:
             chat_id: チャットID
         """
-        path = self.chat_dir / f"{chat_id}.json"
-        if path.exists():
-            path.unlink()
+        path = str(self.chat_dir / f"{chat_id}.json")
+        self.json_repo.delete(path)
     
     def list_chat_histories(self) -> List[Dict[str, str]]:
         """
@@ -248,15 +251,19 @@ Context:
             チャット履歴リスト
         """
         chats = []
-        for f in self.chat_dir.glob("*.json"):
+        # JSONファイルをリストアップ
+        json_files = self.file_storage.list_files(str(self.chat_dir), "*.json")
+        
+        for json_path in json_files:
             try:
-                with open(f, "r", encoding="utf-8") as j:
-                    data = json.load(j)
+                data = self.json_repo.load(json_path)
+                if data:
                     chats.append({
-                        "id": f.stem,
+                        "id": Path(json_path).stem,
                         "title": data.get("title", "Untitled Chat"),
                         "date": data.get("date", "")
                     })
             except Exception:
                 continue
+        
         return sorted(chats, key=lambda x: x["date"], reverse=True)

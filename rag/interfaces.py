@@ -4,7 +4,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Any, Union
 from pathlib import Path
 from datetime import datetime
 
@@ -134,4 +134,102 @@ class ISettingsService(ABC):
     @abstractmethod
     def get_user_settings(self) -> Dict[str, Any]:
         """ユーザー設定を取得"""
+        pass
+
+
+# データアクセス層のインターフェース
+class IVectorStore(ABC):
+    """ベクトルストア操作のインターフェース"""
+    
+    @abstractmethod
+    def load_local(self, db_path: str, config, allow_dangerous_deserialization: bool = False) -> 'IVectorStore':
+        """ローカルからベクトルストアをロード"""
+        pass
+    
+    @abstractmethod
+    def save_local(self, db_path: str):
+        """ベクトルストアをローカルに保存"""
+        pass
+    
+    @abstractmethod
+    def as_retriever(self, search_kwargs: Optional[dict] = None):
+        """リトリーバーとして取得"""
+        pass
+    
+    @property
+    @abstractmethod
+    def index(self) -> Any:
+        """ベクトルストアのインデックスを取得"""
+        pass
+
+
+class IFileStorage(ABC):
+    """ファイルストレージ操作のインターフェース"""
+    
+    @abstractmethod
+    def exists(self, path: str) -> bool:
+        """ファイルが存在するか確認"""
+        pass
+    
+    @abstractmethod
+    def read_text(self, path: str, encoding: str = "utf-8") -> str:
+        """テキストファイルを読み込む"""
+        pass
+    
+    @abstractmethod
+    def write_text(self, path: str, content: str, encoding: str = "utf-8") -> None:
+        """テキストファイルを書き込む"""
+        pass
+    
+    @abstractmethod
+    def delete(self, path: str) -> bool:
+        """ファイルを削除"""
+        pass
+    
+    @abstractmethod
+    def list_files(self, directory: str, pattern: str = "*") -> List[str]:
+        """ディレクトリ内のファイルをリストアップ"""
+        pass
+    
+    @abstractmethod
+    def mkdir(self, path: str, exist_ok: bool = True) -> None:
+        """ディレクトリを作成"""
+        pass
+
+
+class IEmbeddingService(ABC):
+    """埋め込みサービスのインターフェース"""
+    
+    @abstractmethod
+    def create_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """テキストの埋め込みベクトルを生成"""
+        pass
+    
+    @abstractmethod
+    def create_embedding(self, text: str) -> List[float]:
+        """単一テキストの埋め込みベクトルを生成"""
+        pass
+
+
+class IJsonRepository(ABC):
+    """JSONデータリポジトリのインターフェース"""
+    
+    @abstractmethod
+    def save(self, data: Dict[str, Any], path: str) -> None:
+        """JSONデータを保存"""
+        pass
+    
+    @abstractmethod
+    def load(self, path: str) -> Optional[Dict[str, Any]]:
+        """JSONデータを読み込む"""
+        pass
+    
+    @abstractmethod
+    def delete(self, path: str) -> bool:
+        """JSONファイルを削除"""
+        pass
+    
+    @abstractmethod
+    def exists(self, path: str) -> bool:
+        """JSONファイルが存在するか確認"""
         pass
