@@ -9,6 +9,7 @@ from typing import List, Optional, Any
 from pathlib import Path
 from abc import ABC, abstractmethod
 
+from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 
@@ -55,6 +56,43 @@ class VectorStoreRepository(IVectorStore):
         vectorstore = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=allow_dangerous_deserialization)
         return cls(config, vectorstore)
     
+    @classmethod
+    def from_documents(cls, documents: List[Document], config) -> 'VectorStoreRepository':
+        """
+        ドキュメントからベクトルストアを作成（バッチ処理）
+        
+        Args:
+            documents: ドキュメントリスト
+            config: 設定オブジェクト
+            
+        Returns:
+            VectorStoreRepositoryインスタンス
+        """
+        print(f"[DEBUG] [Thread] FAISS Building started (Total: {len(documents)} units)...")
+        embeddings = OpenAIEmbeddings(
+            base_url=config.lm_studio.url,
+            api_key=config.lm_studio.api_key,
+            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length
+        )
+        print(f"[DEBUG] [Thread] Using Embeddings URL: {config.lm_studio.url}")
+        
+        batch_size = 100
+        total = len(documents)
+        
+        # 最初のバッチでインスタンスを作成
+        first_batch = documents[:batch_size]
+        print(f"[DEBUG] [Thread] Processing first batch (1-{min(batch_size, total)})")
+        vectorstore = FAISS.from_documents(first_batch, embeddings)
+        
+        # 残りのバッチを追加
+        for i in range(batch_size, total, batch_size):
+            batch = documents[i : i + batch_size]
+            current_count = i + len(batch)
+            print(f"[DEBUG] [Thread] Adding batch ({i+1}-{current_count}) / {total}")
+            vectorstore.add_documents(batch)
+            
+        print(f"[DEBUG] [Thread] FAISS Building finished.")
+        return cls(config, vectorstore)
     def save_local(self, db_path: str):
         """
         ベクトルストアをローカルに保存

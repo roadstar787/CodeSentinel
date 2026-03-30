@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 
 import httpx
 
+from langchain_core.documents import Document
 from rag.repositories import VectorStoreRepository, EmbeddingService, FileStorageRepository
 from rag.document_processor import DocumentProcessor
 from config.config import Settings
@@ -120,30 +121,60 @@ class DocumentService(IDocumentService):
             tuple[成功フラグ, メッセージ]
         """
         self.stats["is_rebuilding"] = True
+        print(f"[DEBUG] REBUILD DB TASK STARTED")
         
         try:
             # LM Studioへの接続確認
             connected = await self.check_lm_studio()
             if not connected:
+                print(f"[DEBUG] REBUILD FAIL: LM Studio not connected.")
                 return False, "LM Studio connection failed"
             
             # ドキュメント処理とベクトルストア構築
             success, message = await self.document_processor.process_all_documents()
             if not success:
+                print(f"[DEBUG] REBUILD FAIL: Parsing failed. {message}")
                 return False, message
             
-            # ベクトルストアの保存
-            if self.vector_store:
-                self.vector_store.save_local(self.config.paths.db_path)
-                self.stats["total_chunks"] = len(self.document_processor.processed_documents)
-                self.stats["last_rebuild"] = self._get_current_timestamp()
+            # ベクトルストアの構築（新規作成） - 長時間かかるため別スレッドで実行
+            processed_docs = self.document_processor.get_processed_documents()
+            # LangChainのDocumentオブジェクトに再変換
+            langchain_docs = [
+                Document(page_content=d.content, metadata=d.metadata) 
+                for d in processed_docs
+            ]
+            
+            print(f"[DEBUG] EMBEDDING PHASE STARTED - Total {len(langchain_docs)} chunks.")
+            # ドキュメントからベクトルストアを新規作成（LM Studio通信とブロッキングを回避）
+            self.vector_store = await asyncio.to_thread(
+                VectorStoreRepository.from_documents, 
+                langchain_docs, 
+                self.config
+            )
+            print(f"[DEBUG] EMBEDDING PHASE FINISHED - Vector store created.")
+            
+            # ベクトルストアの保存（別スレッドで実行）
+            print(f"[DEBUG] SAVING DB TO DISK...")
+            await asyncio.to_thread(
+                self.vector_store.save_local, 
+                self.config.paths.db_path
+            )
+            print(f"[DEBUG] DB SAVED. Rebuild Complete.")
+            
+            # 統計情報を更新
+            self.stats["total_chunks"] = len(langchain_docs)
+            self.stats["last_rebuild"] = self._get_current_timestamp()
             
             return True, "SUCCESS"
             
         except Exception as e:
+            print(f"[DEBUG] REBUILD CRASH: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False, f"Unexpected error during rebuild: {str(e)}"
         finally:
             self.stats["is_rebuilding"] = False
+            print(f"[DEBUG] REBUILD DB TASK FINISHED")
     
     def get_statistics(self) -> Dict[str, Any]:
         """

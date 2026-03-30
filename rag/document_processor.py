@@ -117,18 +117,26 @@ class DocumentProcessor:
             処理済みドキュメントリスト
         """
         try:
-            loader = self.get_document_loader(file_path)
+            ext = file_path.suffix.lower()
+            raw_documents = []
             
             # テキストファイルの場合はエンコーディングのフォールバックを試行
-            try:
-                raw_documents = loader.load()
-            except UnicodeDecodeError:
-                if isinstance(loader, TextLoader):
-                    # UTF-8で失敗した場合はCP932でリトライ
-                    loader.encoding = "cp932"
+            if ext in {".py", ".cpp", ".h", ".hpp", ".cs", ".json", ".md"}:
+                try:
+                    loader = TextLoader(str(file_path), encoding="utf-8")
                     raw_documents = loader.load()
-                else:
-                    raise
+                except (UnicodeDecodeError, Exception):
+                    try:
+                        # UTF-8で失敗した場合はCP932でリトライ
+                        loader = TextLoader(str(file_path), encoding="cp932")
+                        raw_documents = loader.load()
+                    except Exception as e:
+                        print(f"Failed to load {file_path} with UTF-8/CP932: {e}")
+                        return []
+            else:
+                # バイナリファイル形式
+                loader = self.get_document_loader(file_path)
+                raw_documents = loader.load()
             
             # メタデータの追加
             for doc in raw_documents:
@@ -173,6 +181,9 @@ class DocumentProcessor:
         
         for file_path in files:
             try:
+                # 1ファイル処理ごとに一瞬だけイベントループに制御を戻す (Heartbeatを維持)
+                await asyncio.sleep(0)
+                
                 docs = self.process_file(file_path, base_path, doc_type)
                 processed_docs.extend(docs)
                 
@@ -194,29 +205,47 @@ class DocumentProcessor:
         Returns:
             tuple[成功フラグ, メッセージ]
         """
+        print(f"[DEBUG] SCAN PHASE STARTED - Scanning directories...")
         self.processed_documents = []
         all_docs = []
         
-        # ターゲットディレクトリの処理
-        target_dir = self.config.paths.get_target_dir()
-        if target_dir.exists():
-            target_docs = await self.process_directory(target_dir, target_dir, "code")
-            all_docs.extend(target_docs)
+        # ターゲットディレクトリの処理 - パスが設定されている場合のみ実行
+        target_path_str = self.config.paths.target_dir
+        target_dir = None
+        if target_path_str:
+            target_dir = self.config.paths.get_target_dir()
+            print(f"[DEBUG] Scanning target: {target_dir}")
+            if target_dir.exists():
+                target_docs = await self.process_directory(target_dir, target_dir, "code")
+                all_docs.extend(target_docs)
+                print(f"[DEBUG] Scanned {len(target_docs)} chunks from target.")
         
-        # ドキュメントディレクトリの処理
-        doc_dir = self.config.paths.get_doc_dir()
-        if doc_dir.exists():
-            doc_docs = await self.process_directory(doc_dir, doc_dir, "document")
-            all_docs.extend(doc_docs)
+        # ドキュメントディレクトリの処理 - パスが設定されている場合、且つターゲットと重複しない場合のみ実行
+        doc_path_str = self.config.paths.doc_dir
+        if doc_path_str:
+            doc_dir = self.config.paths.get_doc_dir()
+            
+            # ターゲットディレクトリと同じ場所を指しているかチェック
+            if target_dir and target_dir.resolve() == doc_dir.resolve():
+                print(f"[DEBUG] Skipping docs directory scan: Already scanned as target.")
+            else:
+                print(f"[DEBUG] Scanning docs: {doc_dir}")
+                if doc_dir.exists():
+                    doc_docs = await self.process_directory(doc_dir, doc_dir, "document")
+                    all_docs.extend(doc_docs)
+                    print(f"[DEBUG] Scanned {len(doc_docs)} chunks from docs.")
         
         if not all_docs:
+            print(f"[DEBUG] REBUILD FAIL: No files found.")
             return False, "No documents found"
         
         # ドキュメント数チェック
         if len(all_docs) > self.config.ui.max_document_chunks:
+            print(f"[DEBUG] REBUILD FAIL: Too many chunks ({len(all_docs)})")
             return False, f"Too many document chunks ({len(all_docs)}). Please reduce the number of files."
         
         self.processed_documents = all_docs
+        print(f"[DEBUG] SCAN PHASE FINISHED. Total: {len(all_docs)} chunks.")
         return True, f"Processed {len(all_docs)} documents"
     
     def get_processed_documents(self) -> List[ProcessedDocument]:

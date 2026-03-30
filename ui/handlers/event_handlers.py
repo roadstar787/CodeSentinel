@@ -430,28 +430,45 @@ class EventHandlers:
         n = ui.notification('Rebuilding Vector DB...', spinner=True, infinite=True, position='top-right')
         
         # ボタンをアニメーション状態に変更
-        rebuild_btn.classes(add='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
-        rebuild_btn.classes(remove='border-slate-800')
-        rebuild_btn.set_text('BUILDING...')
-        
+        try:
+            rebuild_btn.classes(add='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
+            rebuild_btn.classes(remove='border-slate-800')
+            rebuild_btn.set_text('BUILDING...')
+        except RuntimeError:
+            print("[DEBUG] UI client disconnected during start animation.")
+
         try:
             # バックグラウンドで再構築を実行
             success, msg = await self.backend.rebuild_db()
             
             # 通知の更新
-            n.dismiss()
-            if success:
-                ui.notify('Rebuild successful!', color='positive', position='top-right', icon='check_circle')
-            else:
-                ui.notify(f'Rebuild failed: {msg}', color='negative', position='top-right', icon='error')
+            try:
+                n.dismiss()
+                if success:
+                    ui.notify('Rebuild successful!', color='positive', position='top-right', icon='check_circle')
+                else:
+                    ui.notify(f'Rebuild failed: {msg}', color='negative', position='top-right', icon='error')
+            except RuntimeError:
+                print(f"[DEBUG] UI client disconnected during notification update. Rebuild result: {success}")
         except Exception as e:
-            n.dismiss()
-            ui.notify(f'System Error: {e}', color='negative', position='top-right')
+            try:
+                n.dismiss()
+                ui.notify(f'System Error: {e}', color='negative', position='top-right')
+            except RuntimeError:
+                pass
+            print(f"[DEBUG] REBUILD CRASH: {str(e)}")
+            import traceback
+            traceback.print_exc()
         finally:
             # アニメーション状態を解除してテキストを元に戻す
-            rebuild_btn.classes(remove='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
-            rebuild_btn.classes(add='border-slate-800')
-            rebuild_btn.set_text('REBUILD')
+            try:
+                rebuild_btn.classes(remove='rebuild-active text-yellow-400 border-yellow-400 bg-yellow-900/20')
+                rebuild_btn.classes(add='border-slate-800')
+                rebuild_btn.set_text('REBUILD')
+                
+                idx_label.set_text(f'IDX: {self.backend.stats["total_chunks"]}')
+                refresh_explorer_func()
+            except RuntimeError:
+                print("[DEBUG] UI client disconnected during final status update.")
             
-            idx_label.set_text(f'IDX: {self.backend.stats["total_chunks"]}')
-            refresh_explorer_func()
+            print(f"[DEBUG] REBUILD DB TASK FINISHED")

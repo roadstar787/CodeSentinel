@@ -123,7 +123,14 @@ async def main_page_handler():
         if tree_container is None:
             return
             
-        tree_container.clear()
+        # 操作の安全性確保
+        try:
+            tree_container.clear()
+        except RuntimeError:
+            return  # 接続切断時は中断
+        except:
+            pass # その他のエラーは無視して継続を試みる (再描画の可能性があるため)
+
         from collections import Counter
         state['hit_counts'] = getattr(state, 'hit_counts', Counter())
         
