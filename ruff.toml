@@ -1,0 +1,120 @@
+# Ruff設定ファイル
+
+# ターゲットPythonバージョン
+target-version = "py312"
+
+# 行の最大長
+line-length = 88
+
+# 使用するルール
+[lint]
+select = [
+    # pycodestyleのE, W
+    "E", "W",
+    # pyflakesのF
+    "F",
+    # pyupgradeのUP
+    "UP",
+    # flake8-bugbearのB
+    "B",
+    # flake8-simplifyのSIM
+    "SIM",
+    # isortのI
+    "I",
+    # pydocstyleのD
+    "D",
+    # mccabeのC90
+    "C90",
+    # banditのS
+    "S",
+    # flake8-annotationsのANN
+    "ANN",
+    # flake8-unused-argumentsのARG
+    "ARG",
+    # flake8-returnのRET
+    "RET",
+    # flake8-selfのSLF
+    "SLF",
+    # flake8-pytest-styleのPT
+    "PT",
+    # flake8-debuggerのT
+    "T",
+    # flake8-printのT20
+    "T201",
+    # flake8-raiseのRSE
+    "RSE",
+    # flake8-simplifyのSIM
+    "SIM",
+    # flake8-todosのTD
+    "TD",
+    # flake8-typing-extensionsのTCH
+    "TCH",
+    # flake8-unused-variablesのF401, F841
+    "F401", "F841",
+]
+
+# 無視するルール
+ignore = [
+    # 未使用のインポート（初期設定では警告が出るため）
+    "F401",
+    # 未使用の変数（初期設定では警告が出るため）
+    "F841",
+    # メソッドの第一引数がselfでない（初期設定では警告が出るため）
+    "ANN101",
+    # メソッドの戻り値型注釈がselfでない（初期設定では警告が出るため）
+    "ANN102",
+    # クラスメソッドの第一引数がclsでない（初期設定では警告が出るため）
+    "ANN204",
+    # 関数の戻り値型注釈がない（初期設定では警告が出るため）
+    "ANN002",
+    # 関数の引数型注釈がない（初期設定では警告が出るため）
+    "ANN001",
+    # コメント内のTODO（初期設定では警告が出るため）
+    "TD001",
+    # コメント内のFIXME（初期設定では警告が出るため）
+    "TD002",
+    # コメント内のXXX（初期設定では警告が出るため）
+    "TD003",
+]
+
+# ファイルパターン
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    # old_srcディレクトリを除外
+    "old_src",
+]
+
+# インポート順の設定
+[lint.isort]
+known-first-party = ["src"]
+
+# フォーマット設定
+[format]
+# クォートスタイル
+quote-style = "double"
+# インデントスタイル
+indent-style = "space"
+# 末尾のコンマ
+skip-magic-trailing-comma = false
+# 行末のスペース
+line-ending = "auto"
