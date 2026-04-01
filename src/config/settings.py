@@ -94,7 +94,7 @@ class RAGSettings:
     @property
     def supported_extensions(self) -> set:
         """サポートするファイル拡張子."""
-        return {".py", ".cs", ".cpp", ".h", ".hpp", ".json", ".pdf", ".md", ".xlsx", ".pptx"}
+        return {".py", ".cs", ".cpp", ".h", ".hpp", ".json", ".pdf", ".md", ".xlsx", ".pptx", ".txt"}
 
 
 @dataclass
