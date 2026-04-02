@@ -1,4 +1,4 @@
-# CodeSentinel (v0.4.0)
+# CodeSentinel v2.0
 
 ## 概要
 CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エンジニアのための高度なコード分析・質問応答システムです。
@@ -7,7 +7,7 @@ CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エン
 
 ## 主な機能
 
-### 1. ギャップ分析 (Gap Analysis) ✨ New in v0.4.0
+### 1. ギャップ分析 (Gap Analysis)
 - **仕様と実装の比較**: 仕様書（DOCS）とソースコード（CODE）の内容を比較し、矛盾点や未実装項目を自動的に抽出します。
 - **構造化された可視化**: 分析結果を視覚的な「ギャップカード」として表示し、問題の詳細を一目で確認できます。
 - **ダイレクトジャンプ**: カード内のボタンから、指摘された具体的なファイルと行番号へ即座に移動できます。
@@ -21,16 +21,29 @@ CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エン
 - **マルチドキュメント対応**: `.py`, `.cpp`, `.cs`, `.h`, `.json` などのコードだけでなく、`.pdf`, `.md`, `.xlsx`, `.pptx` などのドキュメントもインデックス対象です。
 - **FAISS ベクトルストア**: 高速かつ精度の高いセマンティック検索を実現します。
 
-### 4. システム監視と管理
+### 4. チャット機能
+- **RAG連携チャット**: ベクトルDBを参照して、コードベースやドキュメントに基づいた回答を生成します。
+- **チャット履歴**: 過去の会話を保存・再開できます。
+- **ソース表示**: 回答の根拠となったファイルを表示します。
+
+### 5. ファイルエクスプローラー
+- **ファイル一覧表示**: ターゲットディレクトリとドキュメントディレクトリのファイルを一覧表示します。
+- **ファイルタイプ別アイコン**: ファイル拡張子に応じたアイコンを表示します。
+
+### 6. ToDo管理
+- **ToDo追加・削除・完了**: タスクの追加、削除、完了状態の切り替えができます。
+- **優先度設定**: 高・中・低の3段階で優先度を設定できます。
+- **統計情報**: 総数、未完了数、完了数、優先度分布を表示します。
+
+### 7. システム監視と管理
 - **リアルタイムステータス**: CPU/RAM 使用率、LM Studio 接続状態、ロード中のモデル名をリアルタイムに表示。
-- **チャット履歴管理**: 過去の質問や分析結果を保存・再開できます。
 - **インデックス再構築**: UI からワンクリックでベクトル DB の構築・更新が可能。
 
 ## インストール方法
 
 1. **Python 環境の構築**
    ```bash
-   pip install -r requirements.txt
+   uv sync --all-extras
    ```
    ※主な依存: `nicegui`, `langchain`, `faiss-cpu`, `psutil`, `httpx`, `unstructured` (ドキュメント解析用)
 
@@ -42,21 +55,49 @@ CodeSentinel は、Retrieval-Augmented Generation (RAG) を活用した、エン
 
 1. **起動**
    ```bash
-   python CodeSentinel.py
+   uv run python src/app.py
    ```
 2. **初期設定**
-   - ブラウザで `http://localhost:8080` にアクセス。
-   - サイドバーの「SET」タブで、解析対象の「Code Path」と「Doc Path」を入力。
+   - ブラウザで `http://localhost:8081` にアクセス。
+   - サイドバーの「SET」タブで、解析対象の「ターゲットディレクトリ」と「ドキュメントディレクトリ」を入力。
    - 「REBUILD」をクリックしてインデックスを構築します。
 3. **分析**
-   - 画面上部のトグルで「Q&A (Normal)」または「GAP (Gap Analysis)」を選択。
-   - 質問を入力すると、関連するコード・仕様書に基づいた回答が生成されます。
+   - チャットインターフェースで質問を入力すると、関連するコード・仕様書に基づいた回答が生成されます。
+
+## テスト
+
+```bash
+# 全テストを実行
+uv run pytest src/tests/ -v
+
+# mypyチェック
+uv run mypy src/
+```
 
 ## 技術スタック
 - **UI**: NiceGUI (Python-based Web UI)
 - **RAG**: LangChain, FAISS
 - **Backend Content**: OpenAI Embeddings API (LM Studio Compatible)
 - **Monitoring**: psutil
+- **テスト**: pytest, mypy
+
+## プロジェクト構造
+```
+src/
+├── app.py                 # アプリケーションエントリーポイント
+├── config/                # 設定
+├── core/                  # コア機能（RAGBackend）
+├── repositories/          # リポジトリ層
+├── services/              # サービス層
+├── tests/                 # テスト
+└── ui/                    # UIコンポーネント
+    ├── components/        # UIコンポーネント
+    │   ├── sidebar.py     # サイドバー
+    │   ├── chat_interface.py  # チャットインターフェース
+    │   ├── file_explorer.py   # ファイルエクスプローラー
+    │   └── todo_manager.py    # ToDo管理
+    └── main_page.py       # メインページ
+```
 
 ## ライセンス
 MIT License
