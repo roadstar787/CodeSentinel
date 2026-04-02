@@ -3,7 +3,9 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
+
+from src.config.settings import Settings
 
 
 class IFileStorage(ABC):
@@ -61,4 +63,45 @@ class IJsonRepository(ABC):
     @abstractmethod
     def exists(self, path: str) -> bool:
         """JSONファイルが存在するか確認."""
+        pass
+
+
+class IVectorStore(ABC):
+    """ベクトルストアリポジトリのインターフェース."""
+
+    @abstractmethod
+    def as_retriever(self, search_kwargs: Optional[Dict[str, Any]] = None) -> Any:
+        """リトリーバーとして取得."""
+        pass
+
+    @abstractmethod
+    def save_local(self, db_path: str) -> None:
+        """ベクトルストアをローカルに保存."""
+        pass
+
+    @property
+    @abstractmethod
+    def index(self) -> Any:
+        """ベクトルストアのインデックスを取得."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def load_local(
+        cls,
+        db_path: str,
+        config: Settings,
+        allow_dangerous_deserialization: bool = False
+    ) -> "IVectorStore":
+        """ローカルからベクトルストアをロード."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_documents(
+        cls,
+        documents: List,
+        config: Settings
+    ) -> "IVectorStore":
+        """ドキュメントからベクトルストアを作成."""
         pass
