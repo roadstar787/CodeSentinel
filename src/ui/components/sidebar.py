@@ -81,7 +81,7 @@ def _render_chat_list(container: ui.column, backend: RAGBackend) -> None:
 def _render_todo_list(container: ui.column, backend: RAGBackend) -> None:
     """ToDoリストを表示."""
     with container:
-        todos = backend.todo_service.list_todos(show_completed=False)
+        todos = backend.get_todo_service().list_todos(show_completed=False)
         if not todos:
             ui.label('ToDoがありません').classes('text-gray-400')
         else:
@@ -106,7 +106,7 @@ def _render_settings(backend: RAGBackend) -> None:
 
 def _render_stats(container: ui.column, backend: RAGBackend) -> None:
     """統計情報を表示."""
-    stats = backend.document_service.get_statistics()
+    stats = backend.get_document_service().get_statistics()
     with container:
         ui.label(f'総チャンク数: {stats.get("total_chunks", 0)}').classes('text-white')
         ui.label(f'ベクトルストア: {"ロード済み" if stats.get("vector_store_loaded", False) else "未ロード"}').classes('text-white')
