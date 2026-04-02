@@ -36,6 +36,12 @@ class TestSidebar:
         mock_todo_service.list_todos.return_value = [
             {'id': '1', 'title': 'Test Todo', 'completed': False, 'priority': 'high'}
         ]
+        mock_todo_service.get_todo_statistics.return_value = {
+            'total': 1,
+            'pending': 1,
+            'completed': 0,
+            'priority_distribution': {'high': 1, 'medium': 0, 'low': 0}
+        }
         backend.get_todo_service.return_value = mock_todo_service
         return backend
 
