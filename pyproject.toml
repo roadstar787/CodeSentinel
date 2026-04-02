@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "faiss-cpu>=1.13.2",
+    "httpx>=0.28.1",
     "langchain-community>=0.4.1",
     "langchain-core>=1.2.19",
     "langchain-openai>=1.1.11",
     "langchain-text-splitters>=1.1.1",
     "markdown>=3.10.2",
+    "nicegui>=2.0.0",
     "openpyxl>=3.1.5",
     "psutil>=7.2.2",
     "pypdf>=6.9.1",
@@ -24,6 +26,8 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.8",
+    "types-markdown>=3.7.0.20241204",
+    "types-openpyxl>=3.1.5.20241225",
 ]
 
 [tool.mypy]
