@@ -85,20 +85,34 @@ class VectorStoreRepository(IVectorStore):
         )
         print(f"[DEBUG] [Thread] Using Embeddings URL: {config.lm_studio.url}")
 
-        batch_size = 100
+        # バッチサイズを小さく設定（LM Studioの負荷軽減）
+        batch_size = 10
         total = len(documents)
 
+        # テキストとメタデータを抽出
+        texts = [doc.page_content for doc in documents]
+        metadatas = [doc.metadata for doc in documents]
+
         # 最初のバッチでインスタンスを作成
-        first_batch = documents[:batch_size]
+        first_batch_texts = texts[:batch_size]
+        first_batch_metadatas = metadatas[:batch_size]
         print(f"[DEBUG] [Thread] Processing first batch (1-{min(batch_size, total)})")
-        vectorstore = FAISS.from_documents(first_batch, embeddings)
+        vectorstore = FAISS.from_texts(
+            texts=first_batch_texts,
+            embedding=embeddings,
+            metadatas=first_batch_metadatas
+        )
 
         # 残りのバッチを追加
         for i in range(batch_size, total, batch_size):
-            batch = documents[i: i + batch_size]
-            current_count = i + len(batch)
+            batch_texts = texts[i: i + batch_size]
+            batch_metadatas = metadatas[i: i + batch_size]
+            current_count = i + len(batch_texts)
             print(f"[DEBUG] [Thread] Adding batch ({i + 1}-{current_count}) / {total}")
-            vectorstore.add_documents(batch)
+            vectorstore.add_texts(
+                texts=batch_texts,
+                metadatas=batch_metadatas
+            )
 
         print(f"[DEBUG] [Thread] FAISS Building finished.")
         return cls(config, vectorstore)
