@@ -7,6 +7,7 @@ from nicegui import ui, app
 
 from src.core.backend import RAGBackend
 from src.ui.components.sidebar import create_sidebar
+from src.ui.components.chat_interface import create_chat_interface
 
 
 async def main_page(backend: RAGBackend) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -45,6 +46,13 @@ def create_main_ui(backend: RAGBackend) -> None:
         backend: RAGBackendインスタンス
 
     """
+    # セッションと状態を初期化
+    session = {
+        'id': str(uuid.uuid4()),
+        'history': []
+    }
+    state: Dict[str, Any] = {'hit_counts': {}}
+
     # サイドバーを先に作成
     drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels = create_sidebar(backend)
 
@@ -56,6 +64,6 @@ def create_main_ui(backend: RAGBackend) -> None:
             pass
 
     # メインコンテンツエリア
-    with ui.column().classes('w-full h-full p-4'):
-        ui.label('メインコンテンツ').classes('text-2xl font-bold')
-        ui.label('ここにチャットインターフェースなどを配置').classes('text-gray-500')
+    with ui.column().classes('w-full h-full'):
+        # チャットインターフェース
+        create_chat_interface(backend, session, state)
