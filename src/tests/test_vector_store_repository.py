@@ -124,7 +124,7 @@ class TestVectorStoreRepository:
         mock_embeddings_class.return_value = mock_embeddings_instance
 
         mock_vectorstore = Mock()
-        mock_faiss_class.from_documents.return_value = mock_vectorstore
+        mock_faiss_class.from_texts.return_value = mock_vectorstore
 
         documents = [
             Document(page_content="content1", metadata={"source": "test1.py"}),
@@ -133,7 +133,7 @@ class TestVectorStoreRepository:
 
         repository = VectorStoreRepository.from_documents(documents, mock_config)
 
-        mock_faiss_class.from_documents.assert_called_once()
+        mock_faiss_class.from_texts.assert_called_once()
         assert repository.vectorstore == mock_vectorstore
 
     @patch("src.repositories.vector_store_repository.OpenAIEmbeddings")
@@ -146,18 +146,18 @@ class TestVectorStoreRepository:
         mock_embeddings_class.return_value = mock_embeddings_instance
 
         mock_vectorstore = Mock()
-        mock_faiss_class.from_documents.return_value = mock_vectorstore
+        mock_faiss_class.from_texts.return_value = mock_vectorstore
 
-        # 150件のドキュメントを作成（バッチサイズ100を超えてテスト）
+        # 15件のドキュメントを作成（バッチサイズ10を超えてテスト）
         documents = [
             Document(page_content=f"content{i}", metadata={"source": f"test{i}.py"})
-            for i in range(150)
+            for i in range(15)
         ]
 
         repository = VectorStoreRepository.from_documents(documents, mock_config)
 
-        # 最初のバッチでfrom_documentsが呼ばれる
-        mock_faiss_class.from_documents.assert_called_once()
-        # 残りのドキュメントでadd_documentsが呼ばれる
-        mock_vectorstore.add_documents.assert_called_once()
+        # 最初のバッチでfrom_textsが呼ばれる
+        mock_faiss_class.from_texts.assert_called_once()
+        # 残りのドキュメントでadd_textsが呼ばれる
+        mock_vectorstore.add_texts.assert_called()
         assert repository.vectorstore == mock_vectorstore
