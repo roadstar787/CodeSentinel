@@ -69,11 +69,11 @@
 
 ## 必要なリポジトリ層（未実装）
 
-- [ ] **FileStorageRepository** - ファイルI/O操作
+- [x] **FileStorageRepository** - ファイルI/O操作
   - 参考: `old_src/rag/repositories.py`
-- [ ] **JsonRepository** - JSONデータ操作
+- [x] **JsonRepository** - JSONデータ操作
   - 参考: `old_src/rag/repositories.py`
-- [ ] **VectorStoreRepository** - FAISSベクトルストア
+- [x] **VectorStoreRepository** - FAISSベクトルストア
   - 参考: `old_src/rag/repositories.py`
 
 ---
@@ -81,8 +81,8 @@
 ## 実装計画（推奨順序）
 
 ### フェーズ1: 基盤構築（優先度1 - 高）
-- [ ] Step 1: FileStorageRepository, JsonRepositoryの実装
-- [ ] Step 2: VectorStoreRepositoryの実装
+- [x] Step 1: FileStorageRepository, JsonRepositoryの実装
+- [x] Step 2: VectorStoreRepositoryの実装
 - [ ] Step 3: DocumentServiceの実装（rebuild_database, load_database等）
 - [ ] Step 4: ChatServiceのgenerate_response実装（LLM連携）
 
