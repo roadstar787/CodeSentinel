@@ -5,11 +5,10 @@ CodeSentinelのRAG機能の基底クラスを定義します。
 
 from typing import Any, Dict, List, Optional, Union
 
-from config.settings import Settings
-from interfaces.services import IChatService, IDocumentService, ITodoService
-from services.chat_service import ChatService
-from services.document_service import DocumentService
-from services.todo_service import TodoService
+from src.config.settings import Settings
+from src.services.chat_service import ChatService
+from src.services.document_service import DocumentService
+from src.services.todo_service import TodoService
 
 
 class RAGBackend:
@@ -17,23 +16,23 @@ class RAGBackend:
     サービスオーケストレーターとして各サービスを連携させます.
     """
 
-    def __init__(self, config: Settings | None = None):
+    def __init__(self, config: Optional[Settings] = None):
         """初期化.
 
         Args:
             config: 設定オブジェクト。Noneの場合はデフォルト設定を使用
 
         """
-        self.config: Settings = config or settings
+        self.config: Settings = config or Settings()
         self.mode: str = self.config.app.mode
 
         # サービスの初期化
-        self.chat_service: IChatService = ChatService(self.config)
-        self.document_service: IDocumentService = DocumentService(self.config)
-        self.todo_service: ITodoService = TodoService(self.config.paths.todo_dir_path)
+        self.chat_service: ChatService = ChatService(self.config)
+        self.document_service: DocumentService = DocumentService(self.config)
+        self.todo_service: TodoService = TodoService(self.config.paths.todo_dir_path)
 
         # 統計情報（ドキュメントサービスから取得）
-        self.stats: dict[str, Any] = {
+        self.stats: Dict[str, Any] = {
             "total_chunks": 0,
             "is_rebuilding": False,
             "lm_connected": False,
@@ -64,15 +63,15 @@ class RAGBackend:
         doc_stats = self.document_service.get_statistics()
         self.stats.update(doc_stats)
 
-    def get_chat_service(self) -> IChatService:
+    def get_chat_service(self) -> ChatService:
         """チャットサービスを取得."""
         return self.chat_service
 
-    def get_todo_service(self) -> ITodoService:
+    def get_todo_service(self) -> TodoService:
         """ToDoサービスを取得."""
         return self.todo_service
 
-    def get_document_service(self) -> IDocumentService:
+    def get_document_service(self) -> DocumentService:
         """ドキュメントサービスを取得."""
         return self.document_service
 
@@ -126,7 +125,7 @@ class RAGBackend:
         finally:
             self.stats["is_rebuilding"] = False
 
-    def list_chats(self) -> list[dict[str, str]]:
+    def list_chats(self) -> List[Dict[str, str]]:
         """保存されているチャット履歴の一覧を取得.
 
         Returns:
@@ -135,7 +134,7 @@ class RAGBackend:
         """
         return self.chat_service.list_chat_histories()
 
-    def load_chat(self, chat_id: str) -> dict | None:
+    def load_chat(self, chat_id: str) -> Optional[Dict[str, Any]]:
         """特定のチャット履歴をロード.
 
         Args:
@@ -147,7 +146,7 @@ class RAGBackend:
         """
         return self.chat_service.load_chat_history(chat_id)
 
-    def save_chat(self, chat_id: str, messages: list[dict], title: str | None = None) -> None:
+    def save_chat(self, chat_id: str, messages: List[Dict[str, Any]], title: Optional[str] = None) -> None:
         """チャット履歴を保存.
 
         Args:
@@ -167,7 +166,7 @@ class RAGBackend:
         """
         self.chat_service.delete_chat_history(chat_id)
 
-    def update_user_settings(self, user_storage: dict[str, Any]) -> None:
+    def update_user_settings(self, user_storage: Dict[str, Any]) -> None:
         """ユーザーストレージの設定で更新.
 
         Args:
@@ -177,7 +176,7 @@ class RAGBackend:
         self.config.update_from_user_storage(user_storage)
         self.mode = self.config.app.mode
 
-    def get_user_settings(self) -> dict[str, Any]:
+    def get_user_settings(self) -> Dict[str, Any]:
         """ユーザー設定を取得.
 
         Returns:
