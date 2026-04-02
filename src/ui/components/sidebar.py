@@ -45,9 +45,8 @@ def create_sidebar(
                 _render_chat_list(chat_list_container, backend)
 
             with ui.tab_panel(tab_tod):
-                ui.label('ToDoリスト').classes('text-white text-lg font-bold')
-                todo_list_container = ui.column().classes('w-full')
-                _render_todo_list(todo_list_container, backend)
+                from src.ui.components.todo_manager import create_todo_manager
+                create_todo_manager(backend)
 
             with ui.tab_panel(tab_set):
                 ui.label('設定').classes('text-white text-lg font-bold')
