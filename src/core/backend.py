@@ -117,6 +117,8 @@ class RAGBackend:
         try:
             success, message = await self.document_service.rebuild_database()
             if success:
+                # 再構築後にベクトルストアをロード
+                self.document_service.load_database()
                 self._sync_statistics()
             return success, message
 
