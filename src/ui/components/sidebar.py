@@ -36,8 +36,8 @@ def create_sidebar(
         # EXPタブの内容
         with tab_panels:
             with ui.tab_panel(tab_exp):
-                ui.label('エクスプローラー').classes('text-white text-lg font-bold')
-                ui.label('ファイル一覧をここに表示').classes('text-gray-400')
+                from src.ui.components.file_explorer import create_file_explorer
+                create_file_explorer(backend)
 
             with ui.tab_panel(tab_cht):
                 ui.label('チャット履歴').classes('text-white text-lg font-bold')
