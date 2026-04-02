@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from services.todo_service import TodoService
+from src.config.settings import Settings
+from src.services.todo_service import TodoService
 
 
 class TestTodoService:
