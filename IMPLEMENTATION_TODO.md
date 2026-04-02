@@ -49,6 +49,7 @@
 - [x] **サイドバー** - NiceGUIを使用したサイドバーコンポーネント
 - [x] **メインページ** - アプリケーションエントリーポイント
 - [x] **app.py** - NiceGUIアプリケーション起動
+- [x] **チャットインターフェース** - チャットメッセージ表示・入力・履歴表示
 
 ---
 
@@ -75,17 +76,19 @@
 
 | コミット | 内容 |
 |---------|------|
-| `dfe24e9` | feat: FileStorageRepository, JsonRepositoryの実装 |
-| `7aac062` | feat: VectorStoreRepositoryの実装 |
-| `f277b2d` | feat: DocumentServiceの実装 |
-| `cf5b0e1` | feat: ChatServiceの実装 |
-| `aa0fa5c` | feat: TodoServiceの実装 |
-| `4f89f28` | feat: 統合テストとRAGBackendの実装を完了 |
-| `0aee3de` | fix: VectorStoreRepositoryのバッチ処理を修正 |
-| `4c4a89a` | feat: データベース再構築スクリプトを追加 |
-| `0a509b4` | feat: UI層の実装を開始 |
-| `3225789` | test: UIコンポーネントのテストを追加 |
+| `563e9f6` | feat: チャットインターフェースUIコンポーネントを追加 |
+| `619d8f8` | docs: IMPLEMENTATION_TODO.mdを更新 |
 | `19e3720` | fix: VectorStoreRepositoryのテストを修正 |
+| `3225789` | test: UIコンポーネントのテストを追加 |
+| `0a509b4` | feat: UI層の実装を開始 |
+| `4c4a89a` | feat: データベース再構築スクリプトを追加 |
+| `0aee3de` | fix: VectorStoreRepositoryのバッチ処理を修正 |
+| `4f89f28` | feat: 統合テストとRAGBackendの実装を完了 |
+| `aa0fa5c` | feat: TodoServiceの実装 |
+| `cf5b0e1` | feat: ChatServiceの実装 |
+| `f277b2d` | feat: DocumentServiceの実装 |
+| `7aac062` | feat: VectorStoreRepositoryの実装 |
+| `dfe24e9` | feat: FileStorageRepository, JsonRepositoryの実装 |
 
 ---
 
@@ -99,13 +102,14 @@
 - **Step 6**: 5テスト、すべてパス ✅
 - **Step 7**: 1テスト、すべてパス ✅
 - **Step 8**: 21テスト、すべてパス ✅
+- **Step 9**: 1テスト、すべてパス ✅
 - **合計**: 84テスト、すべてパス ✅
 
 ---
 
 ## 次のステップ
 
-1. **UIの機能拡張** - チャットインターフェース、ファイルエクスプローラーなどの詳細実装
+1. **UIの機能拡張** - ファイルエクスプローラー、ToDo管理UIなどの詳細実装
 2. **統合テスト** - 各サービスを組み合わせたエンドツーエンドテスト
 3. **ドキュメント** - APIドキュメントの整備
 
