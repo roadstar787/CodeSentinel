@@ -27,5 +27,5 @@ class TestPreviewDialog:
              patch('src.ui.components.preview_dialog.ui.card'), \
              patch('src.ui.components.preview_dialog.ui.notify') as mock_notify:
             get_dialog_func, open_preview_func = create_preview_dialog()
-            open_preview_func(file_path='', base_dir='.', jump_line=None)
+            open_preview_func('', '.', None)
             mock_notify.assert_not_called()
