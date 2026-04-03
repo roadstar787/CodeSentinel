@@ -10,7 +10,7 @@ from nicegui import ui
 SearchState = Dict[str, Any]
 
 
-def create_preview_dialog() -> Tuple[Callable[[], None], Callable[[str, Optional[str], Optional[int]], None]]:
+def create_preview_dialog() -> Tuple[Callable[[], Optional[ui.dialog]], Callable[[str, Optional[str], Optional[int]], None]]:
     """プレビューダイアログを作成する.
 
     Returns:
