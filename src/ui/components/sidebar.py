@@ -63,18 +63,42 @@ def create_sidebar(
     return drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels
 
 
-def _render_chat_list(container: ui.column, backend: RAGBackend) -> None:
+def _render_chat_list(container: ui.column, backend: RAGBackend, session: Optional[Dict[str, Any]] = None, chat_results: Optional[Any] = None) -> None:
     """チャット一覧を表示."""
+    def refresh():
+        container.clear()
+        _render_chat_list(container, backend, session, chat_results)
+    
     with container:
         chats = backend.list_chats()
         if not chats:
             ui.label('チャット履歴がありません').classes('text-gray-400')
         else:
             for chat in chats[:10]:  # 最新10件まで表示
+                chat_id = chat.get('id', '')
                 with ui.row().classes('w-full items-center cursor-pointer hover:bg-gray-700 p-2 rounded'):
                     ui.icon('chat', size='sm').classes('text-blue-400')
                     ui.label(chat.get('title', 'Untitled')).classes('text-white flex-1')
                     ui.label(chat.get('date', '')[:10]).classes('text-gray-400 text-xs')
+                    
+                    # 削除ボタン
+                    ui.button(
+                        icon='delete',
+                        on_click=lambda e, cid=chat_id: _delete_chat(cid, backend, session, chat_results, container)
+                    ).props('flat dense size=sm color=red-4').classes('opacity-50 hover:opacity-100')
+
+
+def _delete_chat(chat_id: str, backend: RAGBackend, session: Optional[Dict], chat_results: Optional[Any], container: ui.column) -> None:
+    """チャットを削除する."""
+    backend.delete_chat(chat_id)
+    ui.notify('チャットを削除しました')
+    if session and session.get('id') == chat_id:
+        session['id'] = str(__import__('uuid').uuid4())
+        session['history'] = []
+        if chat_results:
+            chat_results.clear()
+    container.clear()
+    _render_chat_list(container, backend, session, chat_results)
 
 
 def _render_todo_list(container: ui.column, backend: RAGBackend) -> None:
