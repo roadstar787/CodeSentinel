@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, List, Optional
 from nicegui import ui, app
 
 from src.core.backend import RAGBackend
+from src.ui.components.gap_analysis import render_gap_analysis
+from src.ui.components.preview_dialog import create_preview_dialog
 
 
 def create_chat_interface(
