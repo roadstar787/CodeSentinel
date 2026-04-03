@@ -95,19 +95,57 @@ def _render_todo_list(container: ui.column, backend: RAGBackend) -> None:
 def _render_settings(backend: RAGBackend) -> None:
     """設定を表示."""
     settings = backend.get_user_settings()
+    
     with ui.column().classes('w-full gap-4'):
-        ui.input('ターゲットディレクトリ', value=str(settings.get('target_dir', ''))).classes('w-full')
-        ui.input('ドキュメントディレクトリ', value=str(settings.get('doc_dir', ''))).classes('w-full')
+        # バインディング用コンテナ
+        container = {'target_dir': str(settings.get('target_dir', '')),
+                     'doc_dir': str(settings.get('doc_dir', '')),
+                     'mode': str(settings.get('mode', 'Normal'))}
+        
+        def save_settings():
+            new_settings = {
+                'target_dir': container['target_dir'],
+                'doc_dir': container['doc_dir'],
+                'mode': container['mode']
+            }
+            backend.update_user_settings(new_settings)
+            ui.notify('設定を保存しました')
+        
+        ui.label('ターゲットディレクトリ').classes('text-white')
+        target_input = ui.input(value=container['target_dir']).classes('w-full')
+        target_input.on('blur', lambda _: container.update(target_dir=target_input.value))
+        
+        ui.label('ドキュメントディレクトリ').classes('text-white')
+        doc_input = ui.input(value=container['doc_dir']).classes('w-full')
+        doc_input.on('blur', lambda _: container.update(doc_dir=doc_input.value))
+        
         mode_options = ['Normal', 'Gap']
-        ui.select(mode_options, value=settings.get('mode', 'Normal'), label='モード').classes('w-full')
-        ui.button('保存', on_click=lambda: ui.notify('設定を保存しました')).props('color=blue-500')
+        ui.label('モード').classes('text-white')
+        mode_select = ui.select(mode_options, value=container['mode']).classes('w-full')
+        mode_select.on('blur', lambda _: container.update(mode=mode_select.value))
+        
+        ui.button('保存', on_click=save_settings).props('color=blue-500')
 
 
 def _render_stats(container: ui.column, backend: RAGBackend) -> None:
     """統計情報を表示."""
+    async def rebuild_database():
+        ui.notify('データベース再構築を開始します...')
+        try:
+            success, message = await backend.rebuild_db()
+            if success:
+                ui.notify(message)
+                # 統計情報を更新
+                container.clear()
+                _render_stats(container, backend)
+            else:
+                ui.notify(f'再構築に失敗しました: {message}', color='red')
+        except Exception as e:
+            ui.notify(f'エラーが発生しました: {str(e)}', color='red')
+    
     stats = backend.get_document_service().get_statistics()
     with container:
         ui.label(f'総チャンク数: {stats.get("total_chunks", 0)}').classes('text-white')
         ui.label(f'ベクトルストア: {"ロード済み" if stats.get("vector_store_loaded", False) else "未ロード"}').classes('text-white')
         ui.label(f'LM Studio: {"接続済み" if stats.get("lm_connected", False) else "未接続"}').classes('text-white')
-        ui.button('データベース再構築', on_click=lambda: ui.notify('再構築を開始しました')).props('color=orange-500')
+        ui.button('データベース再構築', on_click=rebuild_database).props('color=orange-500')
