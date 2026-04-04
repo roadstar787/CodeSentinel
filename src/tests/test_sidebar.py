@@ -74,7 +74,8 @@ class TestSidebarChatIntegration:
 
     def test_chat_list_renders_with_session(self, mock_backend, mock_session, mock_state):
         """チャット一覧がsessionコンテキストで正しくレンダリングされることをテスト."""
-        from src.ui.components.sidebar import create_sidebar, _render_chat_list
+        from src.ui.components.sidebar import create_sidebar
+        from src.ui.components.sidebar_tabs.chat_history_tab import _render_chat_list
 
         with patch('src.ui.components.sidebar.ui') as mock_ui:
             self._setup_mock_ui(mock_ui)
@@ -96,7 +97,7 @@ class TestSidebarChatIntegration:
 
     def test_chat_delete_updates_session(self, mock_backend, mock_session, mock_state):
         """チャット削除後にセッションがリセットされることをテスト."""
-        from src.ui.components.sidebar import _delete_chat
+        from src.ui.components.sidebar_tabs.chat_history_tab import _delete_chat
 
         mock_chat_results = MagicMock()
         mock_chat_list_container = MagicMock()
@@ -119,14 +120,14 @@ class TestSidebarChatIntegration:
 
     def test_render_chat_list_shows_chats(self, mock_backend, mock_session, mock_state):
         """チャット一覧にチャットが表示されることをテスト."""
-        from src.ui.components.sidebar import _render_chat_list
+        from src.ui.components.sidebar_tabs.chat_history_tab import _render_chat_list
 
         mock_container = MagicMock()
         mock_container.__enter__ = Mock(return_value=mock_container)
         mock_container.__exit__ = Mock(return_value=False)
         mock_container.clear = Mock()
 
-        with patch('src.ui.components.sidebar.ui') as mock_ui:
+        with patch('src.ui.components.sidebar_tabs.chat_history_tab.ui') as mock_ui:
             mock_ui.label.return_value = MagicMock()
             mock_ui.row.return_value = mock_container
             mock_ui.icon.return_value = MagicMock()
@@ -143,7 +144,7 @@ class TestSidebarChatIntegration:
 
     def test_render_chat_list_empty_state(self, mock_backend, mock_session, mock_state):
         """チャットが存在しない場合の空状態表示をテスト."""
-        from src.ui.components.sidebar import _render_chat_list
+        from src.ui.components.sidebar_tabs.chat_history_tab import _render_chat_list
 
         mock_backend.list_chats.return_value = []
         mock_container = MagicMock()
@@ -151,7 +152,7 @@ class TestSidebarChatIntegration:
         mock_container.__exit__ = Mock(return_value=False)
         mock_container.clear = Mock()
 
-        with patch('src.ui.components.sidebar.ui') as mock_ui:
+        with patch('src.ui.components.sidebar_tabs.chat_history_tab.ui') as mock_ui:
             mock_ui.label.return_value = MagicMock()
 
             _render_chat_list(
