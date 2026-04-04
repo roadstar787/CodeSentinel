@@ -2,6 +2,7 @@
 FAISSベクトルストアの操作を提供します.
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
@@ -125,7 +126,10 @@ class VectorStoreRepository(IVectorStore):
 
         """
         if self.vectorstore:
+            # ディレクトリが存在しない場合は作成
+            Path(db_path).mkdir(parents=True, exist_ok=True)
             self.vectorstore.save_local(db_path)
+            print(f"[DEBUG] Vector store saved to {db_path}")
 
     def as_retriever(self, search_kwargs: Optional[Dict[str, Any]] = None) -> Any:
         """リトリーバーとして取得.

@@ -28,7 +28,7 @@ def create_chat_interface(
     """
     with ui.column().classes('w-full h-full p-4 gap-4') as container:
         # チャットメッセージ表示エリア
-        chat_results = ui.column().classes('w-full flex-grow overflow-y-auto gap-2 p-2')
+        chat_results = ui.column().classes('w-full flex-grow overflow-y-auto gap-2 p-2 text-white')
 
         # 入力エリア
         with ui.row().classes('w-full items-center gap-2'):
@@ -71,8 +71,8 @@ def _handle_query(
 
     # ユーザーメッセージを表示
     with chat_results:
-        ui.label(f"Q: {query}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
-        md = ui.markdown('Thinking...').classes('text-slate-700 text-sm p-4 w-full border-b')
+        ui.label(f"Q: {query}").classes('text-indigo-300 font-bold text-sm bg-indigo-900/50 p-2 w-full border-l-4 border-indigo-400')
+        md = ui.markdown('Thinking...').classes('text-white text-sm p-4 w-full border-b border-slate-600')
         source_row = ui.row().classes('gap-2 mt-1')
 
     # 検索と応答生成
@@ -155,9 +155,9 @@ def _render_chat_history(container: ui.column, history: List[Dict[str, Any]]) ->
     with container:
         for msg in history:
             if msg['role'] == 'user':
-                ui.label(f"Q: {msg['content']}").classes('text-indigo-600 font-bold text-sm bg-indigo-50 p-2 w-full border-l-4 border-indigo-600')
+                ui.label(f"Q: {msg['content']}").classes('text-indigo-300 font-bold text-sm bg-indigo-900/50 p-2 w-full border-l-4 border-indigo-400')
             else:
-                ui.markdown(msg['content']).classes('text-slate-700 text-sm p-4 w-full border-b')
+                ui.markdown(msg['content']).classes('text-white text-sm p-4 w-full border-b border-slate-600')
                 with ui.row().classes('w-full justify-end items-center mb-4'):
                     ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=msg['content']: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
                         .props('flat dense color=slate-400 size=sm').classes('opacity-50 hover:opacity-100')

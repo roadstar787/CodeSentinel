@@ -1,10 +1,15 @@
 """CodeSentinel v2.0 アプリケーションエントリーポイント"""
 
+import warnings
+
 from nicegui import ui, app
 
 from src.config.settings import Settings
 from src.core.backend import RAGBackend
 from src.ui.main_page import create_main_ui
+
+# 警告を抑制
+warnings.filterwarnings("ignore", message="Parameters {'max_tokens'} should be specified explicitly")
 
 
 def init_backend() -> RAGBackend:
@@ -13,21 +18,15 @@ def init_backend() -> RAGBackend:
     return RAGBackend(config)
 
 
-@ui.page('/')
-def index() -> None:
-    """メインページ."""
-    backend = app.storage.general.get('backend')
-    if backend:
-        create_main_ui(backend)
-    else:
-        ui.label('バックエンドが初期化されていません').classes('text-red-500')
-
-
 def main() -> None:
     """アプリケーションを起動する."""
-    # バックエンドを初期化してストレージに保存
+    # バックエンドを初期化
     backend = init_backend()
-    app.storage.general['backend'] = backend
+
+    @ui.page('/')
+    def index() -> None:
+        """メインページ."""
+        create_main_ui(backend)
 
     # NiceGUIを起動
     ui.run(
@@ -38,5 +37,5 @@ def main() -> None:
     )
 
 
-if __name__ == '__main__':
+if __name__ in {'__main__', '__mp_main__'}:
     main()

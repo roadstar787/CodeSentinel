@@ -4,6 +4,7 @@
 
 import json
 import uuid
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,6 +16,9 @@ from langchain_openai import ChatOpenAI
 from src.config.settings import Settings
 from src.repositories.file_storage_repository import FileStorageRepository
 from src.repositories.json_repository import JsonRepository
+
+# 警告を抑制
+warnings.filterwarnings("ignore", message="Parameters {'max_tokens'} should be specified explicitly")
 
 
 class ChatService:
@@ -38,11 +42,13 @@ class ChatService:
         self.file_storage.mkdir(str(self.chat_dir))
 
         # LLM初期化
+        # Note: max_tokensはmodel_kwargsで指定（警告が出るが機能する）
         self.llm = ChatOpenAI(
             base_url=config.lm_studio.url,
             api_key=config.lm_studio.api_key,  # type: ignore[arg-type]
             temperature=config.rag.temperature,
-            streaming=True
+            streaming=True,
+            model_kwargs={"max_tokens": 4096}  # 最大トークン数を増加
         )
 
     def generate_chat_id(self) -> str:
@@ -178,11 +184,13 @@ Context:
             フォーマットされたコンテキスト
 
         """
+        # 最初の5つのドキュメントに制限（コンテキスト長を削減）
+        limited_docs = docs[:5]
         return "\n".join([
             f"TYPE: {d.metadata.get('type', 'unknown')}\n"
             f"FILE: {d.metadata['source']}\n"
             f"{d.page_content}"
-            for d in docs
+            for d in limited_docs
         ])
 
     def save_chat_history(

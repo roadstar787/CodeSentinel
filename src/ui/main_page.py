@@ -10,7 +10,6 @@ from src.ui.components.sidebar import create_sidebar
 from src.ui.components.chat_interface import create_chat_interface
 from src.ui.components.header import create_header
 from src.ui.components.preview_dialog import create_preview_dialog
-from src.ui.components.status_updater import create_status_updater
 
 
 async def main_page(backend: RAGBackend) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -49,60 +48,71 @@ def create_main_ui(backend: RAGBackend) -> None:
         backend: RAGBackendインスタンス
 
     """
-    # セッションと状態を初期化
+    # ユーザー設定を永続化ストレージから復元（なければデフォルト）
+    try:
+        saved_settings = app.storage.user.get('user_settings', {})
+        if saved_settings:
+            backend.update_user_settings(saved_settings)
+        else:
+            # デフォルト設定をstorageに保存
+            default_settings = backend.get_user_settings()
+            app.storage.user['user_settings'] = default_settings
+    except RuntimeError:
+        # テスト環境などstorageが使用できない場合はデフォルト設定を使用
+        pass
+
+    # データベースの初期ロード（設定更新後に行う）
+    db_loaded = backend.load_db()
+    if not db_loaded:
+        try:
+            ui.notify('データベースが見つかりません。設定からデータベース再構築を実行してください。', color='warning', timeout=10000)
+        except RuntimeError:
+            pass
+
+    # チャットセッション管理（永続化）
+    try:
+        saved_chat_id = app.storage.user.get('current_chat_id')
+    except RuntimeError:
+        saved_chat_id = None
+
     session = {
-        'id': str(uuid.uuid4()),
+        'id': saved_chat_id or str(uuid.uuid4()),
         'history': []
     }
+    # 保存されたチャット履歴を復元
+    if saved_chat_id:
+        chat_data = backend.load_chat(saved_chat_id)
+        if chat_data:
+            session['history'] = chat_data.get('messages', [])
+
     state: Dict[str, Any] = {'hit_counts': {}}
 
     # プレビューダイアログの作成
     get_preview_dialog, open_preview = create_preview_dialog()
 
     # ヘッダーの作成
-    mode_toggle = create_header(
+    create_header(
         app_name="CodeSentinel",
         version="0.4.0",
-        on_toggle_mode=lambda e: backend.update_user_settings({'mode': e.value})
     )
 
-    # サイドバーの作成
-    drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels = create_sidebar(backend)
+    # チャットインターフェースの作成（コンテナを取得）
+    chat_container = create_chat_interface(backend, session, state)
+    # チャットメッセージ表示エリア（最初の子要素）を取得
+    chat_results = None
+    if hasattr(chat_container, 'default_slot') and chat_container.default_slot:
+        children = getattr(chat_container.default_slot, 'children', [])
+        if children:
+            chat_results = children[0]
 
-    # メインコンテンツエリア
-    with ui.column().classes('w-full h-full p-4 gap-4'):
-        # チャットインターフェース
-        create_chat_interface(backend, session, state)
+    # サイドバーの作成（session, state, preview_open, chat_resultsを渡す）
+    drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels = create_sidebar(
+        backend,
+        session=session,
+        state=state,
+        preview_open=open_preview,
+        chat_results=chat_results,
+    )
 
-    # データベースの初期ロード
-    backend.load_db()
-
-    # ステータス更新ループの開始（STSタブ）
-    def setup_status_tab():
-        """ステータスタブのUI要素を設定する."""
-        with ui.column().classes('w-full gap-2'):
-            cpu_label = ui.label('0%').classes('text-white')
-            ram_label = ui.label('0GB').classes('text-white')
-            lm_status_chip = ui.label('OFFLINE').classes('text-white')
-            lm_model_label = ui.label('N/A').classes('text-white')
-            status_chip = ui.label('OFFLINE').classes('text-white')
-            chunk_count_label = ui.label('0').classes('text-white')
-            last_update_label = ui.label('Never').classes('text-white')
-
-            # ステータス更新ループを開始
-            start_status_loop = create_status_updater()
-            start_status_loop(
-                cpu_label, ram_label, lm_status_chip, lm_model_label,
-                status_chip, chunk_count_label, last_update_label, backend
-            )
-
-    # タイマーでステータス更新を設定
-    ui.timer(1.0, lambda: None, once=True)  # 初期化後に実行
-
-    # モード切替ハンドラ
-    def on_mode_change(e):
-        """モード切替時のハンドラ."""
-        backend.update_user_settings({'mode': e.value})
-
-    if mode_toggle:
-        ui.timer(0.1, lambda: mode_toggle.on('change', on_mode_change), once=True)
+    # 初期化タイマー
+    ui.timer(0.5, lambda: None, once=True)

@@ -9,11 +9,15 @@ from src.ui.components.header import create_header
 class TestHeader:
     """ヘッダーのテストクラス."""
 
-    def test_create_header_returns_mode_toggle(self) -> None:
-        """create_headerがモード切替を返すことをテスト."""
+    def test_create_header_renders_correctly(self) -> None:
+        """create_headerが正しくレンダリングされることをテスト."""
         with patch('src.ui.components.header.ui') as mock_ui:
-            mock_toggle = Mock()
-            mock_ui.toggle.return_value = mock_toggle
+            # コンテキストマネージャーをサポートするモック
+            mock_header = MagicMock()
+            mock_header.__enter__ = Mock(return_value=mock_header)
+            mock_header.__exit__ = Mock(return_value=None)
+            mock_ui.header.return_value = mock_header
+            mock_ui.header.return_value.classes.return_value = mock_header
             
-            result = create_header()
-            assert mock_ui.toggle.called
+            create_header()
+            assert mock_ui.header.called

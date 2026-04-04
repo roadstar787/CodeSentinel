@@ -27,7 +27,8 @@ class DocumentService:
             "total_chunks": 0,
             "last_rebuild": "Never",
             "lm_connected": False,
-            "model": "N/A"
+            "model": "N/A",
+            "vector_store_loaded": False
         }
 
     async def rebuild_database(self) -> tuple[bool, str]:
@@ -55,8 +56,14 @@ class DocumentService:
         ]
 
         self.vector_store = VectorStoreRepository.from_documents(documents, self.config)
+        
+        # ベクトルストアをローカルに保存
+        db_path = str(self.config.paths.db_full_path)
+        self.vector_store.save_local(db_path)
+        
         self.stats["total_chunks"] = len(documents)
         self.stats["last_rebuild"] = "Just now"
+        self.stats["vector_store_loaded"] = True
 
         return True, f"Indexed {len(documents)} chunks"
 
@@ -67,11 +74,26 @@ class DocumentService:
             bool: ロードできた場合はTrue
 
         """
+        db_path = str(self.config.paths.db_full_path)
         try:
-            db_path = str(self.config.paths.db_full_path)
-            self.vector_store = VectorStoreRepository.load_local(db_path, self.config)
+            print(f"[DEBUG] Loading database from {db_path}")
+            self.vector_store = VectorStoreRepository.load_local(
+                db_path, self.config, allow_dangerous_deserialization=True
+            )
+            print(f"[DEBUG] Database loaded successfully")
+            self.stats["vector_store_loaded"] = True
+            # チャンク数を更新
+            if self.vector_store and self.vector_store.index:
+                self.stats["total_chunks"] = self.vector_store.index.ntotal
+                print(f"[DEBUG] Total chunks: {self.stats['total_chunks']}")
             return True
-        except (FileNotFoundError, Exception):
+        except FileNotFoundError:
+            print(f"[DEBUG] Database not found at {db_path}")
+            self.stats["vector_store_loaded"] = False
+            return False
+        except Exception as e:
+            print(f"[DEBUG] Database load error: {e}")
+            self.stats["vector_store_loaded"] = False
             return False
 
     def get_retriever(self):
