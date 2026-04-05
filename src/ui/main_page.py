@@ -91,7 +91,7 @@ def create_main_ui(backend: RAGBackend) -> None:
     get_preview_dialog, open_preview = create_preview_dialog()
 
     # チャットインターフェースの作成（コンテナを取得）
-    chat_container = create_chat_interface(backend, session, state)
+    chat_container = create_chat_interface(backend, session, state, preview_open=open_preview)
     # チャットメッセージ表示エリア（最初の子要素）を取得
     chat_results = None
     if hasattr(chat_container, 'default_slot') and chat_container.default_slot:

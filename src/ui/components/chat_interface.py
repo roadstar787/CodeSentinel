@@ -56,7 +56,8 @@ JSON_CARD_CSS = '''
 def create_chat_interface(
     backend: RAGBackend,
     session: Dict[str, Any],
-    state: Dict[str, Any]
+    state: Dict[str, Any],
+    preview_open: Optional[Callable] = None,
 ) -> ui.column:
     """チャットインターフェースを作成する.
 
@@ -64,6 +65,7 @@ def create_chat_interface(
         backend: RAGBackendインスタンス
         session: チャットセッション
         state: 検索状態
+        preview_open: ファイルプレビューを開くコールバック
 
     Returns:
         チャットインターフェースのコンテナ
@@ -77,14 +79,14 @@ def create_chat_interface(
         with ui.row().classes('w-full items-center gap-2'):
             input_field = ui.input(placeholder='メッセージを入力...').classes('flex-grow')
             send_button = ui.button('送信', icon='send', on_click=lambda: _handle_query(
-                session, input_field, chat_results, state, backend
+                session, input_field, chat_results, state, backend, preview_open
             )).props('unelevated color=indigo')
 
     # JSONカード用CSSを追加
     ui.add_head_html(f'<style>{JSON_CARD_CSS}</style>')
 
     # 初期メッセージを表示
-    _render_chat_history(chat_results, session['history'])
+    _render_chat_history(chat_results, session['history'], backend, preview_open)
 
     return container
 
@@ -94,7 +96,8 @@ def _handle_query(
     input_field: ui.input,
     chat_results: ui.column,
     state: Dict[str, Any],
-    backend: RAGBackend
+    backend: RAGBackend,
+    preview_open: Optional[Callable] = None,
 ) -> None:
     """クエリを処理する.
 
@@ -104,6 +107,7 @@ def _handle_query(
         chat_results: チャット結果コンテナ
         state: 検索状態
         backend: RAGBackendインスタンス
+        preview_open: ファイルプレビューを開くコールバック
 
     """
     query = input_field.value.strip()
@@ -144,16 +148,16 @@ def _handle_query(
         if loop.is_running():
             # 既にイベントループが実行中の場合は新しいタスクとしてスケジュール
             asyncio.create_task(_generate_response_async(
-                query, context, md, source_row, session, chat_results, backend, unique_hits
+                query, context, md, source_row, session, chat_results, backend, unique_hits, preview_open
             ))
         else:
             loop.run_until_complete(_generate_response_async(
-                query, context, md, source_row, session, chat_results, backend, unique_hits
+                query, context, md, source_row, session, chat_results, backend, unique_hits, preview_open
             ))
     except RuntimeError:
         # イベントループがない場合は新しいループを作成
         asyncio.run(_generate_response_async(
-            query, context, md, source_row, session, chat_results, backend, unique_hits
+            query, context, md, source_row, session, chat_results, backend, unique_hits, preview_open
         ))
 
 
@@ -165,7 +169,8 @@ async def _generate_response_async(
     session: Dict[str, Any],
     chat_results: ui.column,
     backend: RAGBackend,
-    unique_hits: List[tuple]
+    unique_hits: List[tuple],
+    preview_open: Optional[Callable] = None,
 ) -> None:
     """非同期で応答を生成する."""
     chat_service = backend.get_chat_service()
@@ -174,10 +179,14 @@ async def _generate_response_async(
     full = llm_response['content']
     md.set_content(full)
 
-    # ソースを表示
+    # ソースファイルボタンを表示
     with source_row:
         for p, t in unique_hits:
-            ui.button(f"📄 {p}").props('flat dense size=sm color=indigo-400 font-bold').classes('text-[10px] bg-indigo-50/50 px-2 rounded border border-indigo-100/50')
+            base_dir = backend.config.paths.get_target_dir() if t == 'code' else backend.config.paths.get_doc_dir()
+            ui.button(
+                f"📄 {p}",
+                on_click=lambda fp=p, bd=str(base_dir): preview_open(fp, bd) if preview_open else None,
+            ).props('flat dense size=sm color=indigo-400 font-bold').classes('text-xs bg-indigo-50/50 px-3 py-1 rounded border border-indigo-100/50 hover:bg-indigo-100/80 transition-colors')
 
     # ギャップ分析カードを表示（Gapモードの場合）
     gaps = llm_response.get('gaps', [])
@@ -201,12 +210,19 @@ async def _generate_response_async(
     backend.save_chat(session['id'], session['history'], title if len(session['history']) <= 2 else None)
 
 
-def _render_chat_history(container: ui.column, history: List[Dict[str, Any]]) -> None:
+def _render_chat_history(
+    container: ui.column,
+    history: List[Dict[str, Any]],
+    backend: Optional[RAGBackend] = None,
+    preview_open: Optional[Callable] = None,
+) -> None:
     """チャット履歴を表示する.
 
     Args:
         container: コンテナ
         history: メッセージ履歴
+        backend: RAGBackendインスタンス
+        preview_open: ファイルプレビューを開くコールバック
 
     """
     with container:
@@ -216,11 +232,18 @@ def _render_chat_history(container: ui.column, history: List[Dict[str, Any]]) ->
             else:
                 ui.markdown(msg['content']).classes('text-white text-sm p-4 w-full border-b border-slate-600')
 
-                # ソースを表示
+                # ソースファイルボタンを表示
                 if msg.get('sources'):
                     with ui.row().classes('gap-2 mt-1'):
                         for p, t in msg['sources']:
-                            ui.button(f"📄 {p}").props('flat dense size=sm color=indigo-400 font-bold').classes('text-[10px] bg-indigo-50/50 px-2 rounded border border-indigo-100/50')
+                            if backend is not None:
+                                base_dir = backend.config.paths.get_target_dir() if t == 'code' else backend.config.paths.get_doc_dir()
+                                ui.button(
+                                    f"📄 {p}",
+                                    on_click=lambda fp=p, bd=str(base_dir): preview_open(fp, bd) if preview_open else None,
+                                ).props('flat dense size=sm color=indigo-400 font-bold').classes('text-xs bg-indigo-50/50 px-3 py-1 rounded border border-indigo-100/50 hover:bg-indigo-100/80 transition-colors')
+                            else:
+                                ui.button(f"📄 {p}").props('flat dense size=sm color=indigo-400 font-bold').classes('text-xs bg-indigo-50/50 px-3 py-1 rounded border border-indigo-100/50')
 
                 # ギャップ分析カードを表示
                 if msg.get('gaps'):
