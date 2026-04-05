@@ -186,7 +186,7 @@ async def _generate_response_async(
             ui.button(
                 f"📄 {p}",
                 on_click=lambda fp=p, bd=str(base_dir): preview_open(fp, bd) if preview_open else None,
-            ).props('flat dense size=sm color=indigo-400 font-bold').classes('text-xs bg-indigo-50/50 px-3 py-1 rounded border border-indigo-100/50 hover:bg-indigo-100/80 transition-colors')
+            ).props('flat dense size=sm color=indigo-600 font-bold').classes('text-xs text-slate-700 bg-white px-3 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors')
 
     # ギャップ分析カードを表示（Gapモードの場合）
     gaps = llm_response.get('gaps', [])
@@ -241,9 +241,9 @@ def _render_chat_history(
                                 ui.button(
                                     f"📄 {p}",
                                     on_click=lambda fp=p, bd=str(base_dir): preview_open(fp, bd) if preview_open else None,
-                                ).props('flat dense size=sm color=indigo-400 font-bold').classes('text-xs bg-indigo-50/50 px-3 py-1 rounded border border-indigo-100/50 hover:bg-indigo-100/80 transition-colors')
+                                ).props('flat dense size=sm color=indigo-600 font-bold').classes('text-xs text-slate-700 bg-white px-3 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors')
                             else:
-                                ui.button(f"📄 {p}").props('flat dense size=sm color=indigo-400 font-bold').classes('text-xs bg-indigo-50/50 px-3 py-1 rounded border border-indigo-100/50')
+                                ui.button(f"📄 {p}").props('flat dense size=sm color=indigo-600 font-bold').classes('text-xs text-slate-700 bg-white px-3 py-1 rounded border border-indigo-200')
 
                 # ギャップ分析カードを表示
                 if msg.get('gaps'):
