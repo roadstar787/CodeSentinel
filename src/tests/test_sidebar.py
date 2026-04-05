@@ -44,6 +44,12 @@ class TestSidebarChatIntegration:
         }
         backend.get_document_service.return_value = mock_doc_service
 
+        backend.stats = {
+            "chat_history": [],
+            "is_chat_generating": False,
+            "is_rebuilding": False,
+        }
+
         return backend
 
     @pytest.fixture

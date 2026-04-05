@@ -51,16 +51,16 @@ def _render_chat_list(
         return
 
     container.clear()
+    if session is None:
+        session = {'id': '', 'history': []}
+
     with container:
         with ui.row().classes('w-full items-center justify-between mb-4'):
             ui.label('HISTORY').classes('text-[10px] text-slate-600 tracking-widest')
             ui.button(
                 icon='add',
-                on_click=lambda: _start_new_chat(session, container)
+                on_click=lambda: _start_new_chat(backend, session, container)
             ).props('flat round dense color=slate-400')
-
-        if session is None:
-            session = {'id': '', 'history': []}
 
         chats = backend.list_chats() if backend else []
         if not chats:
@@ -87,22 +87,22 @@ def _load_chat(
     session: Optional[Dict],
     container: ui.column,
 ) -> None:
-    """チャットをロード."""
+    """チャットをロード (ステート連動版)."""
     chat_data = backend.load_chat(chat_id) if backend else None
     if chat_data and session:
         session['id'] = chat_id
         session['history'] = chat_data.get('messages', [])
+        
+        # バックエンドのステート（真のソース）を更新
+        if backend:
+            backend.stats['chat_history'] = session['history']
+            
         ui.notify(f'チャット "{chat_data.get("title", "Untitled")}" をロードしました')
         try:
             app.storage.user['current_chat_id'] = chat_id
         except RuntimeError:
             pass
-        # チャットインターフェースを更新
-        chat_results = _chat_results_ref.get('container')
-        if chat_results is not None:
-            chat_results.clear()
-            from src.ui.components.chat_interface import _render_chat_history
-            _render_chat_history(chat_results, session['history'])
+            
     _render_chat_list(container, backend, session)
 
 
@@ -119,10 +119,13 @@ def _delete_chat(
     if session and session.get('id') == chat_id:
         session['id'] = str(uuid.uuid4())
         session['history'] = []
+        if backend:
+            backend.stats['chat_history'] = []
     _render_chat_list(container, backend, session)
 
 
 def _start_new_chat(
+    backend: Any,
     session: Optional[Dict[str, Any]] = None,
     chat_list_container: Optional[ui.column] = None,
 ) -> None:
@@ -131,9 +134,9 @@ def _start_new_chat(
         session = {'id': '', 'history': []}
     session['id'] = str(uuid.uuid4())
     session['history'] = []
+    
+    if backend:
+        backend.stats['chat_history'] = []
+    
     ui.notify('新しいチャットを開始しました')
-    # チャットインターフェースもクリア
-    chat_results = _chat_results_ref.get('container')
-    if chat_results is not None:
-        chat_results.clear()
-    _render_chat_list(chat_list_container, backend=None, session=session)
+    _render_chat_list(chat_list_container, backend, session)

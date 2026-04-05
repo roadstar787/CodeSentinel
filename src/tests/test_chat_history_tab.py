@@ -33,6 +33,12 @@ class TestChatHistoryTab:
         }
         backend.get_todo_service.return_value = mock_todo_service
 
+
+        # 統計情報（チャット状態を含む）
+        backend.stats = {
+            "chat_history": [],
+            "is_chat_generating": False,
+        }
         return backend
 
     @pytest.fixture
@@ -96,44 +102,47 @@ class TestChatHistoryTab:
     def test_delete_chat_resets_session(self, mock_backend, mock_session):
         """チャット削除後にセッションがリセットされることをテスト."""
         from src.ui.components.sidebar_tabs.chat_history_tab import _delete_chat
-
+ 
         mock_container = MagicMock()
         mock_session['id'] = 'chat-1'
-
+        mock_backend.stats['chat_history'] = [{'role': 'user', 'content': 'Hello'}]
+ 
         _delete_chat('chat-1', mock_backend, mock_session, mock_container)
-
+ 
         mock_backend.delete_chat.assert_called_once_with('chat-1')
         assert mock_session['id'] != 'chat-1'
         assert mock_session['history'] == []
+        assert mock_backend.stats['chat_history'] == []
 
     def test_load_chat_session(self, mock_backend, mock_session):
         """チャットセッションのロードをテスト."""
         from src.ui.components.sidebar_tabs.chat_history_tab import _load_chat
-
+ 
         mock_container = MagicMock()
-        mock_chat_results = MagicMock()
-        mock_chat_results.clear = Mock()
-
-        # チャット結果コンテナをグローバル参照に設定
-        import src.ui.components.sidebar_tabs.chat_history_tab as chat_module
-        chat_module._chat_results_ref['container'] = mock_chat_results
-
+        mock_container.__enter__ = Mock(return_value=mock_container)
+        mock_container.__exit__ = Mock(return_value=False)
+ 
         _load_chat('chat-1', mock_backend, mock_session, mock_container)
-
+ 
         assert mock_session['id'] == 'chat-1'
         assert len(mock_session['history']) == 2
+        assert mock_backend.stats['chat_history'] == mock_session['history']
 
     def test_start_new_chat(self, mock_backend, mock_session):
         """新しいチャットの開始をテスト."""
         from src.ui.components.sidebar_tabs.chat_history_tab import _start_new_chat
-
+ 
         mock_container = MagicMock()
+        mock_container.__enter__ = Mock(return_value=mock_container)
+        mock_container.__exit__ = Mock(return_value=False)
+        mock_backend.stats['chat_history'] = [{'role': 'user', 'content': 'old'}]
         old_session_id = mock_session['id']
-
-        _start_new_chat(mock_session, mock_container)
-
+ 
+        _start_new_chat(mock_backend, mock_session, mock_container)
+ 
         assert mock_session['id'] != old_session_id
         assert mock_session['history'] == []
+        assert mock_backend.stats['chat_history'] == []
 
     def _setup_mock_ui(self, mock_ui):
         """UIモックを設定する."""

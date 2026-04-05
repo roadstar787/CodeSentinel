@@ -67,7 +67,17 @@ class TestE2E:
         mock_chat_service.format_context.return_value = ''
         backend.get_chat_service.return_value = mock_chat_service
 
+
         backend.mode = 'Normal'
+        backend.stats = {
+            'total_chunks': 0,
+            'is_rebuilding': False,
+            'status_text': '',
+            'last_notification': None,
+            'chat_history': [],
+            'is_chat_generating': False,
+            'lm_connected': False
+        }
         return backend
 
     def test_sidebar_creation(self, mock_backend):
@@ -155,14 +165,17 @@ class TestE2E:
     def test_chat_interface_creation(self, mock_backend):
         """チャットインターフェース作成のE2Eテスト."""
         from src.ui.components.chat_interface import create_chat_interface
-
+ 
         session = {'id': 'test-session', 'history': []}
         state = {'hit_counts': {}}
-
+ 
         mock_context_manager = MagicMock()
         mock_context_manager.__enter__ = Mock(return_value=mock_context_manager)
         mock_context_manager.__exit__ = Mock(return_value=False)
-
+        # Mock children for the container to satisfy main_page.py's child lookup
+        mock_context_manager.default_slot = Mock()
+        mock_context_manager.default_slot.children = [Mock()]
+ 
         with patch('src.ui.components.chat_interface.ui') as mock_ui:
             mock_ui.column.return_value = mock_context_manager
             mock_ui.row.return_value = mock_context_manager
@@ -170,9 +183,12 @@ class TestE2E:
             mock_ui.button.return_value = mock_context_manager
             mock_ui.label.return_value = mock_context_manager
             mock_ui.markdown.return_value = mock_context_manager
-
+            mock_ui.spinner.return_value = mock_context_manager
+            mock_ui.timer.return_value = mock_context_manager
+            mock_ui.refreshable.side_effect = lambda f: f
+ 
             result = create_chat_interface(mock_backend, session, state)
-
+ 
             assert mock_ui.column.called
             assert mock_ui.input.called
 

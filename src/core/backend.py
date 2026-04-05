@@ -38,6 +38,8 @@ class RAGBackend:
             "is_rebuilding": False,
             "status_text": "",
             "last_notification": None,  # Optional[Dict[str, str]]
+            "chat_history": [],         # List[Dict[str, Any]]
+            "is_chat_generating": False,
             "lm_connected": False,
             "model": "N/A",
             "revision": "v0.4.0",
