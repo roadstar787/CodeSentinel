@@ -32,6 +32,10 @@ _sidebar_state: Dict[str, Any] = {
 }
 
 
+# 再構築中のフラグ
+_is_rebuilding: bool = False
+
+
 def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
     """サイドバーのタブ切り替えを有効化/無効化する.
 
@@ -39,11 +43,18 @@ def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
         enabled: 有効化する場合はTrue、無効化する場合はFalse
         target_tab: 無効化時に表示するタブ（Noneの場合は現在のタブを維持）
     """
+    global _is_rebuilding
+    _is_rebuilding = not enabled
+
     tabs_list = _sidebar_state['tabs_list']
     tab_panels = _sidebar_state.get('tab_panels')
 
     # 現在のタブの値を保存
-    if tab_panels is not None and enabled:
+    if tab_panels is not None and enabled and _sidebar_state.get('current_tab') is None:
+        _sidebar_state['current_tab'] = tab_panels.value
+
+    # 無効化する場合、現在のタブを保持
+    if not enabled and tab_panels is not None:
         _sidebar_state['current_tab'] = tab_panels.value
 
     # タブを無効化/有効化
@@ -57,24 +68,8 @@ def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
         except Exception:
             pass
 
-    # 無効化する場合、指定されたタブまたは設定タブに切り替え
-    if not enabled and tab_panels is not None:
-        if target_tab is not None:
-            tab_panels.set_value(target_tab)
-        else:
-            # 現在のタブを保存して設定タブに切り替え
-            _sidebar_state['current_tab'] = tab_panels.value
-            # tab_setを探す
-            tab_set = None
-            for t in tabs_list:
-                if hasattr(t, 'name') and t.name == 'SET':
-                    tab_set = t
-                    break
-            if tab_set:
-                tab_panels.set_value(tab_set)
-    # 有効化する場合、保存されたタブに戻す
-    elif enabled and tab_panels is not None and _sidebar_state.get('current_tab') is not None:
-        tab_panels.set_value(_sidebar_state['current_tab'])
+    # 無効化してもタブパネルの値は変更しない（現在のタブを維持）
+    # ユーザーがクリックできないようにするだけで十分
 
 
 def register_sidebar_elements(
