@@ -2,7 +2,8 @@
 ドキュメント関連のビジネスロジックを管理します.
 """
 
-from typing import Any, Dict, Optional
+import asyncio
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 
@@ -31,15 +32,26 @@ class DocumentService:
             "vector_store_loaded": False
         }
 
-    async def rebuild_database(self) -> tuple[bool, str]:
+    async def rebuild_database(
+        self,
+        cancel_event: Optional[asyncio.Event] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> tuple[bool, str]:
         """ベクトルストアを再構築.
+
+        Args:
+            cancel_event: キャンセルイベント
+            progress_callback: 進行状況を通知するコールバック
 
         Returns:
             tuple[成功フラグ, メッセージ]
 
         """
         processor = DocumentProcessor(self.config)
-        success, message = await processor.process_all_documents()
+        success, message = await processor.process_all_documents(
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
 
         if not success:
             return False, message

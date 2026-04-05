@@ -71,7 +71,15 @@ class TestSettingsTab:
             with patch('src.ui.components.sidebar_tabs.settings_tab.ui') as mock_ui:
                 mock_notify = Mock()
                 mock_ui.notify = mock_notify
-                await _rebuild_database(mock_backend, {})
+                # モックUI要素を作成
+                mock_rebuild_button = Mock()
+                mock_cancel_button = Mock()
+                mock_progress_label = Mock()
+                mock_progress_spinner = Mock()
+                await _rebuild_database(
+                    mock_backend, mock_rebuild_button, mock_cancel_button,
+                    mock_progress_label, mock_progress_spinner, {}
+                )
                 mock_backend.rebuild_db.assert_called_once()
 
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run_test())
@@ -87,7 +95,15 @@ class TestSettingsTab:
             with patch('src.ui.components.sidebar_tabs.settings_tab.ui') as mock_ui:
                 mock_notify = Mock()
                 mock_ui.notify = mock_notify
-                await _rebuild_database(mock_backend, {})
+                # モックUI要素を作成
+                mock_rebuild_button = Mock()
+                mock_cancel_button = Mock()
+                mock_progress_label = Mock()
+                mock_progress_spinner = Mock()
+                await _rebuild_database(
+                    mock_backend, mock_rebuild_button, mock_cancel_button,
+                    mock_progress_label, mock_progress_spinner, {}
+                )
                 assert mock_notify.call_count >= 1
 
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run_test())
@@ -120,5 +136,6 @@ class TestSettingsTab:
         mock_ui.button.return_value = mock_context_manager
         mock_ui.row.return_value = mock_context_manager
         mock_ui.input.return_value = mock_context_manager
+        mock_ui.spinner.return_value = mock_context_manager
 
         return mock_context_manager

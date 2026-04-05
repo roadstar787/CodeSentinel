@@ -1,12 +1,12 @@
 """メインページを定義します。NiceGUIのルート ('/') に関連付けられます。"""
 
 import uuid
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from nicegui import ui, app
 
 from src.core.backend import RAGBackend
-from src.ui.components.sidebar import create_sidebar
+from src.ui.components.sidebar import create_sidebar, register_sidebar_elements
 from src.ui.components.chat_interface import create_chat_interface
 from src.ui.components.header import create_header
 from src.ui.components.preview_dialog import create_preview_dialog
@@ -75,7 +75,7 @@ def create_main_ui(backend: RAGBackend) -> None:
     except RuntimeError:
         saved_chat_id = None
 
-    session = {
+    session: Dict[str, Any] = {
         'id': saved_chat_id or str(uuid.uuid4()),
         'history': []
     }
@@ -99,6 +99,12 @@ def create_main_ui(backend: RAGBackend) -> None:
         if children:
             chat_results = children[0]
 
+    # タブ切り替えコールバック（再構築中にタブ切り替えを無効化するため）
+    def on_tab_toggle(enabled: bool) -> None:
+        """タブの切り替えを有効化/無効化する."""
+        from src.ui.components.sidebar import set_sidebar_tabs_enabled
+        set_sidebar_tabs_enabled(enabled)
+
     # サイドバーの作成（session, state, preview_open, chat_resultsを渡す）
     drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels = create_sidebar(
         backend,
@@ -106,7 +112,11 @@ def create_main_ui(backend: RAGBackend) -> None:
         state=state,
         preview_open=open_preview,
         chat_results=chat_results,
+        on_tab_toggle=on_tab_toggle,
     )
+
+    # サイドバー要素を登録（タブ無効化用）
+    register_sidebar_elements(tabs, tab_panels, [tab_exp, tab_cht, tab_tod, tab_set, tab_sts])
 
     # モード切り替えコールバック
     def on_toggle_mode(e: Any) -> None:

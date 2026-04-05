@@ -1,7 +1,7 @@
 """サイドバーUIコンポーネント"""
 
 from collections import Counter
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from nicegui import ui, app
 
@@ -22,6 +22,43 @@ from src.ui.components.sidebar_tabs.chat_history_tab import (
 # チャット結果コンテナへの参照
 _chat_results_ref: Dict[str, Any] = {'container': None}
 
+# グローバル状態：サイドバーのタブとパネルの参照を保持
+_sidebar_state: Dict[str, Any] = {
+    'tabs': None,
+    'tab_panels': None,
+    'tabs_list': [],
+}
+
+
+def set_sidebar_tabs_enabled(enabled: bool) -> None:
+    """サイドバーのタブ切り替えを有効化/無効化する.
+
+    Args:
+        enabled: 有効化する場合はTrue、無効化する場合はFalse
+    """
+    if _sidebar_state['tabs'] is not None:
+        for tab in _sidebar_state['tabs_list']:
+            tab.set_enabled(enabled)
+    if _sidebar_state['tab_panels'] is not None:
+        _sidebar_state['tab_panels'].set_enabled(enabled)
+
+
+def register_sidebar_elements(
+    tabs: Any,
+    tab_panels: Any,
+    tabs_list: List[Any],
+) -> None:
+    """サイドバーの要素を登録する（タブ無効化用）.
+
+    Args:
+        tabs: ui.tabsインスタンス
+        tab_panels: ui.tab_panelsインスタンス
+        tabs_list: タブのリスト
+    """
+    _sidebar_state['tabs'] = tabs
+    _sidebar_state['tab_panels'] = tab_panels
+    _sidebar_state['tabs_list'] = tabs_list
+
 
 def create_sidebar(
     backend: RAGBackend,
@@ -30,6 +67,7 @@ def create_sidebar(
     on_tab_change: Optional[Callable] = None,
     preview_open: Optional[Callable] = None,
     chat_results: Optional[ui.column] = None,
+    on_tab_toggle: Optional[Callable[[bool], None]] = None,
 ) -> Tuple:
     """サイドバーを作成する.
 
@@ -88,7 +126,7 @@ def create_sidebar(
         with tab_panels:
             with ui.tab_panel(tab_set):
                 ui.label('CONFIG').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
-                create_settings_tab(backend)
+                create_settings_tab(backend, on_tab_toggle=on_tab_toggle)
 
         # STSタブ
         with tab_panels:

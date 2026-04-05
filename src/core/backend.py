@@ -3,7 +3,8 @@ CodeSentinelのRAG機能の基底クラスを定義します。
 サービスオーケストレーターとして各サービスを管理します。.
 """
 
-from typing import Any, Dict, List, Optional, Union
+import asyncio
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from src.config.settings import Settings
 from src.services.chat_service import ChatService
@@ -40,6 +41,9 @@ class RAGBackend:
             "revision": "v0.4.0",
             "last_rebuild": "Never"
         }
+
+        # 再構築キャンセルフラグ
+        self._rebuild_cancel_event: asyncio.Event = asyncio.Event()
 
         # 初期化
         self._initialize_directories()
@@ -105,17 +109,27 @@ class RAGBackend:
         """
         return self.document_service.get_retriever()
 
-    async def rebuild_db(self) -> tuple[bool, str]:
+    async def rebuild_db(
+        self,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> tuple[bool, str]:
         """ベクトルストアを再構築する.
+
+        Args:
+            progress_callback: 進行状況を通知するコールバック
 
         Returns:
             tuple[成功フラグ, メッセージ]
 
         """
         self.stats["is_rebuilding"] = True
+        self._rebuild_cancel_event.clear()
 
         try:
-            success, message = await self.document_service.rebuild_database()
+            success, message = await self.document_service.rebuild_database(
+                cancel_event=self._rebuild_cancel_event,
+                progress_callback=progress_callback,
+            )
             if success:
                 # 再構築後にベクトルストアをロード
                 self.document_service.load_database()
@@ -126,6 +140,10 @@ class RAGBackend:
             return False, f"Unexpected error during rebuild: {str(e)}"
         finally:
             self.stats["is_rebuilding"] = False
+
+    def cancel_rebuild(self) -> None:
+        """再構築を中断する."""
+        self._rebuild_cancel_event.set()
 
     def list_chats(self) -> List[Dict[str, str]]:
         """保存されているチャット履歴の一覧を取得.

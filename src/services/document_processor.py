@@ -6,7 +6,7 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -151,7 +151,14 @@ class DocumentProcessor:
             print(f"Error processing {file_path}: {e}")
             return []
 
-    async def process_directory(self, dir_path: Path, base_path: Path, doc_type: str = "code") -> List[ProcessedDocument]:
+    async def process_directory(
+        self,
+        dir_path: Path,
+        base_path: Path,
+        doc_type: str = "code",
+        cancel_event: Optional[asyncio.Event] = None,
+        progress_callback: Optional[Any] = None,
+    ) -> List[ProcessedDocument]:
         """
         ディレクトリ内のファイルを処理
 
@@ -159,6 +166,8 @@ class DocumentProcessor:
             dir_path: ディレクトリパス
             base_path: ベースパス
             doc_type: ドキュメントタイプ
+            cancel_event: キャンセルイベント
+            progress_callback: 進行状況を通知するコールバック
 
         Returns:
             処理済みドキュメントリスト
@@ -178,9 +187,14 @@ class DocumentProcessor:
         if len(files) > self.config.ui.max_file_display:
             raise ValueError(f"Too many files ({len(files)}). Please reduce the number of files.")
 
-        processed_docs = []
+        processed_docs: List[ProcessedDocument] = []
 
-        for file_path in files:
+        for i, file_path in enumerate(files):
+            # キャンセルチェック
+            if cancel_event and cancel_event.is_set():
+                print(f"[DEBUG] Process cancelled at {file_path}")
+                return processed_docs
+
             try:
                 # 1ファイル処理ごとに一瞬だけイベントループに制御を戻す (Heartbeatを維持)
                 await asyncio.sleep(0)
@@ -188,22 +202,36 @@ class DocumentProcessor:
                 docs = self.process_file(file_path, base_path, doc_type)
                 processed_docs.extend(docs)
 
+                # 進行状況の通知
+                if progress_callback:
+                    progress_callback(f"処理中: {file_path.name} ({i+1}/{len(files)})")
+
             except Exception as e:
                 print(f"Error processing {file_path}: {e}")
                 continue
 
         return processed_docs
 
-    async def process_all_documents(self) -> Tuple[bool, str]:
+    async def process_all_documents(
+        self,
+        cancel_event: Optional[asyncio.Event] = None,
+        progress_callback: Optional[Any] = None,
+    ) -> Tuple[bool, str]:
         """
         すべてのドキュメントを処理
+
+        Args:
+            cancel_event: キャンセルイベント
+            progress_callback: 進行状況を通知するコールバック
 
         Returns:
             tuple[成功フラグ, メッセージ]
         """
         print(f"[DEBUG] SCAN PHASE STARTED - Scanning directories...")
+        if progress_callback:
+            progress_callback("スキャン開始...")
         self.processed_documents = []
-        all_docs = []
+        all_docs: List[ProcessedDocument] = []
 
         # ターゲットディレクトリの処理 - パスが設定されている場合のみ実行
         target_path_str = self.config.paths.target_dir
@@ -212,7 +240,14 @@ class DocumentProcessor:
             target_dir = self.config.paths.get_target_dir()
             print(f"[DEBUG] Scanning target: {target_dir}")
             if target_dir.exists():
-                target_docs = await self.process_directory(target_dir, target_dir, "code")
+                if progress_callback:
+                    progress_callback(f"ターゲットディレクトリをスキャン中: {target_dir}")
+                target_docs = await self.process_directory(
+                    target_dir, target_dir, "code", cancel_event, progress_callback
+                )
+                if cancel_event and cancel_event.is_set():
+                    print(f"[DEBUG] REBUILD CANCELLED during target scan.")
+                    return False, "再構築を中断しました"
                 all_docs.extend(target_docs)
                 print(f"[DEBUG] Scanned {len(target_docs)} chunks from target.")
 
@@ -227,21 +262,34 @@ class DocumentProcessor:
             else:
                 print(f"[DEBUG] Scanning docs: {doc_dir}")
                 if doc_dir.exists():
-                    doc_docs = await self.process_directory(doc_dir, doc_dir, "document")
+                    if progress_callback:
+                        progress_callback(f"ドキュメントディレクトリをスキャン中: {doc_dir}")
+                    doc_docs = await self.process_directory(
+                        doc_dir, doc_dir, "document", cancel_event, progress_callback
+                    )
+                    if cancel_event and cancel_event.is_set():
+                        print(f"[DEBUG] REBUILD CANCELLED during doc scan.")
+                        return False, "再構築を中断しました"
                     all_docs.extend(doc_docs)
                     print(f"[DEBUG] Scanned {len(doc_docs)} chunks from docs.")
 
         if not all_docs:
             print(f"[DEBUG] REBUILD FAIL: No files found.")
+            if progress_callback:
+                progress_callback("ファイルが見つかりません")
             return False, "No documents found"
 
         # ドキュメント数チェック
         if len(all_docs) > self.config.ui.max_document_chunks:
             print(f"[DEBUG] REBUILD FAIL: Too many chunks ({len(all_docs)})")
+            if progress_callback:
+                progress_callback(f"チャンク数が多すぎます ({len(all_docs)})")
             return False, f"Too many document chunks ({len(all_docs)}). Please reduce the number of files."
 
         self.processed_documents = all_docs
         print(f"[DEBUG] SCAN PHASE FINISHED. Total: {len(all_docs)} chunks.")
+        if progress_callback:
+            progress_callback(f"スキャン完了: {len(all_docs)} チャンク")
         return True, f"Processed {len(all_docs)} documents"
 
     def get_processed_documents(self) -> List[ProcessedDocument]:
