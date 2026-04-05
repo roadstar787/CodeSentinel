@@ -62,7 +62,7 @@ class LMStudioSettings:
 
     url: str = "http://localhost:1234/v1"
     api_key: str = "lm-studio"
-    timeout: float = 30.0
+    timeout: float = 60.0
     check_embedding_ctx_length: bool = False
 
     def get_models_url(self) -> str:
@@ -80,6 +80,7 @@ class RAGSettings:
     chunk_overlap_doc: int = 100
     search_k: int = 10
     temperature: float = 0.1
+    batch_size: int = 50  # FAISSベクトルストアのバッチ処理サイズ
 
     @property
     def code_separators(self) -> list:

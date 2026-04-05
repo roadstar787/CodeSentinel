@@ -65,18 +65,19 @@ async def _rebuild_database(
     stats_labels: Dict[str, ui.label],
 ) -> None:
     """データベースを再構築."""
-    ui.notify('データベース再構築を開始します...')
     if not backend:
         ui.notify('バックエンドが利用できません', color='red')
         return
 
+    # 処理開始通知
+    ui.notify('データベース再構築を開始しています...', color='info', timeout=2000)
+    
     try:
         success, message = await backend.rebuild_db()
         if success:
-            ui.notify(message)
             # 統計情報を更新
             _update_stats_labels(backend, stats_labels)
-            ui.notify('データベースを再構築しました')
+            ui.notify(f'データベース再構築が完了しました: {message}', color='positive', timeout=5000)
         else:
             _handle_rebuild_failure(message)
     except Exception as e:
@@ -108,24 +109,18 @@ def _update_stats_labels(
 def _handle_rebuild_failure(message: str) -> None:
     """再構築失敗時のハンドリング."""
     if 'No models loaded' in message:
-        ui.notify(
-            '再構築に失敗しました: LM StudioにEmbeddingモデルがロードされていません。\n'
-            'LM StudioでEmbeddingモデル（例: nomic-embed-text）をロードしてから再試行してください。',
-            color='red',
-            timeout=15000,
-        )
+        error_msg = '再構築に失敗しました: LM StudioにEmbeddingモデルがロードされていません。\nLM StudioでEmbeddingモデル（例: nomic-embed-text）をロードしてから再試行してください。'
     else:
-        ui.notify(f'再構築に失敗しました: {message}', color='red')
+        error_msg = f'再構築に失敗しました: {message}'
+    
+    ui.notify(error_msg, color='red', timeout=15000)
 
 
 def _handle_rebuild_exception(error_msg: str) -> None:
     """再構築例外時のハンドリング."""
     if 'No models loaded' in error_msg:
-        ui.notify(
-            'エラー: LM StudioにEmbeddingモデルがロードされていません。\n'
-            'LM StudioでEmbeddingモデル（例: nomic-embed-text）をロードしてから再試行してください。',
-            color='red',
-            timeout=15000,
-        )
+        message = 'エラー: LM StudioにEmbeddingモデルがロードされていません。\nLM StudioでEmbeddingモデル（例: nomic-embed-text）をロードしてから再試行してください。'
     else:
-        ui.notify(f'エラーが発生しました: {error_msg}', color='red')
+        message = f'エラーが発生しました: {error_msg}'
+    
+    ui.notify(message, color='red', timeout=15000)

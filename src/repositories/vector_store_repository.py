@@ -29,7 +29,8 @@ class VectorStoreRepository(IVectorStore):
         self._embeddings = OpenAIEmbeddings(
             base_url=config.lm_studio.url,
             api_key=config.lm_studio.api_key,  # type: ignore[arg-type]
-            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length
+            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length,
+            request_timeout=config.lm_studio.timeout,  # type: ignore[call-arg]
         )
 
     @classmethod
@@ -53,7 +54,8 @@ class VectorStoreRepository(IVectorStore):
         embeddings = OpenAIEmbeddings(
             base_url=config.lm_studio.url,
             api_key=config.lm_studio.api_key,  # type: ignore[arg-type]
-            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length
+            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length,
+            request_timeout=config.lm_studio.timeout,  # type: ignore[call-arg]
         )
         vectorstore = FAISS.load_local(
             db_path,
@@ -82,12 +84,13 @@ class VectorStoreRepository(IVectorStore):
         embeddings = OpenAIEmbeddings(
             base_url=config.lm_studio.url,
             api_key=config.lm_studio.api_key,  # type: ignore[arg-type]
-            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length
+            check_embedding_ctx_length=config.lm_studio.check_embedding_ctx_length,
+            request_timeout=config.lm_studio.timeout,  # type: ignore[call-arg]
         )
         print(f"[DEBUG] [Thread] Using Embeddings URL: {config.lm_studio.url}")
 
-        # バッチサイズを小さく設定（LM Studioの負荷軽減）
-        batch_size = 10
+        # バッチサイズを設定から取得（LM Studioの負荷軽減）
+        batch_size = config.rag.batch_size
         total = len(documents)
 
         # テキストとメタデータを抽出

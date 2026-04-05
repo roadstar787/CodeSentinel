@@ -53,14 +53,15 @@ def create_status_updater() -> Callable:
                     mem = psutil.virtual_memory()
                     ram_label.text = f"{mem.used // (1024**3)}GB / {mem.total // (1024**3)}GB"
                     
-                    # LM Studio接続確認
-                    connected = await backend.check_lm_studio()
-                    if connected:
-                        lm_status_chip.text = 'ONLINE'
-                        lm_status_chip.classes(replace='bg-green-900/40 text-green-400')
-                    else:
-                        lm_status_chip.text = 'OFFLINE'
-                        lm_status_chip.classes(replace='bg-red-900/40 text-red-400')
+                    # 再構成処理中は接続チェックをスキップ（LM Studioがビジーになるため）
+                    if not backend.stats.get('is_rebuilding', False):
+                        connected = await backend.check_lm_studio()
+                        if connected:
+                            lm_status_chip.text = 'ONLINE'
+                            lm_status_chip.classes(replace='bg-green-900/40 text-green-400')
+                        else:
+                            lm_status_chip.text = 'OFFLINE'
+                            lm_status_chip.classes(replace='bg-red-900/40 text-red-400')
                     
                     # モデル情報
                     stats = backend.stats
