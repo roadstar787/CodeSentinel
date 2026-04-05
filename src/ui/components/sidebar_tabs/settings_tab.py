@@ -39,11 +39,11 @@ def create_settings_tab(
             # 再構築用コンテナ
             rebuild_button: ui.button = ui.button(
                 'データベース再構築',
-            ).props('color=orange-500').classes('flex-grow')
+            ).props('color=orange-500').classes('w-full')
 
             cancel_button: ui.button = ui.button(
                 '中断',
-            ).props('color=red-500').classes('flex-grow')
+            ).props('color=red-500').classes('w-full')
             cancel_button.set_visibility(False)
 
             # 進行状況表示
