@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 from nicegui import ui, app
 
 from src.core.backend import RAGBackend
-from src.ui.components.sidebar import create_sidebar, register_sidebar_elements
+from src.ui.components.sidebar import create_sidebar
 from src.ui.components.chat_interface import create_chat_interface
 from src.ui.components.header import create_header
 from src.ui.components.preview_dialog import create_preview_dialog
@@ -114,9 +114,6 @@ def create_main_ui(backend: RAGBackend) -> None:
         chat_results=chat_results,
         on_tab_toggle=on_tab_toggle,
     )
-
-    # サイドバー要素を登録（タブ無効化用）
-    register_sidebar_elements(tabs, tab_panels, [tab_exp, tab_cht, tab_tod, tab_set, tab_sts])
 
     # モード切り替えコールバック
     def on_toggle_mode(e: Any) -> None:

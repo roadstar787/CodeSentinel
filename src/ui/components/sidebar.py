@@ -27,37 +27,21 @@ _sidebar_state: Dict[str, Any] = {
     'tabs': None,
     'tab_panels': None,
     'tabs_list': [],
-    'current_tab': None,
-    'tab_panels_ref': None,
 }
 
 
-# 再構築中のフラグ
-_is_rebuilding: bool = False
-
-
-# 再構築中にロックするタブ
-_locked_tab: Any = None
-
-
-def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
+def set_sidebar_tabs_enabled(enabled: bool) -> None:
     """サイドバーのタブ切り替えを有効化/無効化する.
 
     Args:
         enabled: 有効化する場合はTrue、無効化する場合はFalse
-        target_tab: 無効化時に表示するタブ（Noneの場合は現在のタブを維持）
     """
-    global _is_rebuilding, _locked_tab
-    _is_rebuilding = not enabled
-
-    tab_panels = _sidebar_state.get('tab_panels')
-    if tab_panels is not None:
-        if not enabled:
-            # 再構築開始: 現在のタブをロック
-            _locked_tab = tab_panels.value
-        else:
-            # 再構築終了: ロック解除
-            _locked_tab = None
+    tabs_list = _sidebar_state.get('tabs_list', [])
+    for tab in tabs_list:
+        try:
+            tab.set_enabled(enabled)
+        except Exception:
+            pass
 
 
 def register_sidebar_elements(
@@ -75,7 +59,6 @@ def register_sidebar_elements(
     _sidebar_state['tabs'] = tabs
     _sidebar_state['tab_panels'] = tab_panels
     _sidebar_state['tabs_list'] = tabs_list
-    _sidebar_state['tab_panels_ref'] = tab_panels
 
 
 def create_sidebar(
@@ -124,15 +107,6 @@ def create_sidebar(
         # タブの内容パネル
         tab_panels = ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4')
 
-        # タブ切り替え時に再構築中は元のタブに戻す（tabsのon_changeを使用）
-        def _on_tab_change(e: Any) -> None:
-            global _is_rebuilding, _locked_tab
-            if _is_rebuilding and _locked_tab is not None:
-                # 再構築中はロックされたタブに戻す
-                tab_panels.value = _locked_tab
-
-        tabs.on_value_change(_on_tab_change)
-
         # EXPタブ
         with tab_panels:
             with ui.tab_panel(tab_exp):
@@ -165,6 +139,9 @@ def create_sidebar(
         ui.button('SHUTDOWN', on_click=app.shutdown).props(
             'flat icon=power_settings_new color=red-4'
         ).classes('w-full mt-auto mb-4 px-4')
+
+    # サイドバー要素を登録
+    register_sidebar_elements(tabs, tab_panels, [tab_exp, tab_cht, tab_tod, tab_set, tab_sts])
 
     # 初期化タイマー
     ui.timer(0.5, lambda: None, once=True)
