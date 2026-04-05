@@ -26,6 +26,7 @@ class TestVectorStoreRepository:
         config.lm_studio.url = "http://localhost:1234/v1"
         config.lm_studio.api_key = "lm-studio"
         config.lm_studio.check_embedding_ctx_length = False
+        config.rag.batch_size = 10
         return config
 
     def test_init_with_mock(self, mock_config):
