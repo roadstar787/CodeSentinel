@@ -90,12 +90,6 @@ def create_main_ui(backend: RAGBackend) -> None:
     # プレビューダイアログの作成
     get_preview_dialog, open_preview = create_preview_dialog()
 
-    # ヘッダーの作成
-    create_header(
-        app_name="CodeSentinel",
-        version="0.4.0",
-    )
-
     # チャットインターフェースの作成（コンテナを取得）
     chat_container = create_chat_interface(backend, session, state)
     # チャットメッセージ表示エリア（最初の子要素）を取得
@@ -112,6 +106,13 @@ def create_main_ui(backend: RAGBackend) -> None:
         state=state,
         preview_open=open_preview,
         chat_results=chat_results,
+    )
+
+    # ヘッダーの作成（drawerを渡す）
+    create_header(
+        app_name="CodeSentinel",
+        version="0.4.0",
+        drawer=drawer,
     )
 
     # 初期化タイマー

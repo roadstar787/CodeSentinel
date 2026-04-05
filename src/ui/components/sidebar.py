@@ -63,11 +63,11 @@ def create_sidebar(
     with ui.left_drawer(fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
         # サイドバー内のタブナビゲーション
         with ui.tabs().classes('w-full text-slate-500') as tabs:
-            tab_exp = ui.tab('EXP', icon='account_tree')
-            tab_cht = ui.tab('CHATS', icon='chat')
-            tab_tod = ui.tab('TODOS', icon='check_box')
-            tab_set = ui.tab('SET', icon='settings')
-            tab_sts = ui.tab('STS', icon='hub')
+            tab_exp = ui.tab('EXP', icon='account_tree').style('font-size: 11px;')
+            tab_cht = ui.tab('CHATS', icon='chat').style('font-size: 11px;')
+            tab_tod = ui.tab('TODOS', icon='check_box').style('font-size: 11px;')
+            tab_set = ui.tab('SET', icon='settings').style('font-size: 11px;')
+            tab_sts = ui.tab('STS', icon='hub').style('font-size: 11px;')
 
         # タブの内容パネル
         tab_panels = ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4')
