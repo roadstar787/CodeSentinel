@@ -36,11 +36,25 @@ def set_sidebar_tabs_enabled(enabled: bool) -> None:
     Args:
         enabled: 有効化する場合はTrue、無効化する場合はFalse
     """
+    # タブを無効化/有効化
     if _sidebar_state['tabs'] is not None:
         for tab in _sidebar_state['tabs_list']:
-            tab.set_enabled(enabled)
+            try:
+                if enabled:
+                    tab.props(remove='disable')
+                else:
+                    tab.props('disable')
+            except Exception:
+                pass
+    # TabPanels内の全要素を反復処理して無効化/有効化
     if _sidebar_state['tab_panels'] is not None:
-        _sidebar_state['tab_panels'].set_enabled(enabled)
+        try:
+            if enabled:
+                _sidebar_state['tab_panels'].props(remove='disable')
+            else:
+                _sidebar_state['tab_panels'].props('disable')
+        except Exception:
+            pass
 
 
 def register_sidebar_elements(
