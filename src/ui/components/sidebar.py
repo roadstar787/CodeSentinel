@@ -124,14 +124,14 @@ def create_sidebar(
         # タブの内容パネル
         tab_panels = ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4')
 
-        # タブ切り替え時に再構築中は元のタブに戻す
-        def _on_tab_panel_change(e: Any) -> None:
+        # タブ切り替え時に再構築中は元のタブに戻す（tabsのon_changeを使用）
+        def _on_tab_change(e: Any) -> None:
             global _is_rebuilding, _locked_tab
             if _is_rebuilding and _locked_tab is not None:
                 # 再構築中はロックされたタブに戻す
                 tab_panels.value = _locked_tab
 
-        tab_panels.on_value_change(_on_tab_panel_change)
+        tabs.on_value_change(_on_tab_change)
 
         # EXPタブ
         with tab_panels:
