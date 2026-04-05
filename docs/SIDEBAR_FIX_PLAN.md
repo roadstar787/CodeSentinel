@@ -120,3 +120,22 @@ Phase 2:
 - `old_src/` は参考資料のみ。直接統合は禁止
 - 各修正後は既存テストが壊れていないか確認
 - NiceGUI コンポーネントのテストはモックを活用
+
+---
+
+## 改修履歴
+
+### 2026-04-05: サイドバーのリファクタリング
+
+#### 実施内容
+- `src/ui/components/sidebar.py`をシンプルにリファクタリング
+- `create_sidebar()`内で`register_sidebar_elements()`を呼び出すように変更
+- `main_page.py`からの二重呼び出しを削除
+- `set_sidebar_tabs_enabled()`は`tab.set_enabled()`を使用
+
+#### 変更ファイル
+- `src/ui/components/sidebar.py`
+- `src/ui/main_page.py`
+
+#### テスト結果
+- 全18テストがパス
