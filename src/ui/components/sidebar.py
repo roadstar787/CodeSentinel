@@ -36,6 +36,10 @@ _sidebar_state: Dict[str, Any] = {
 _is_rebuilding: bool = False
 
 
+# 再構築中にロックするタブ
+_locked_tab: Any = None
+
+
 def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
     """サイドバーのタブ切り替えを有効化/無効化する.
 
@@ -43,33 +47,17 @@ def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
         enabled: 有効化する場合はTrue、無効化する場合はFalse
         target_tab: 無効化時に表示するタブ（Noneの場合は現在のタブを維持）
     """
-    global _is_rebuilding
+    global _is_rebuilding, _locked_tab
     _is_rebuilding = not enabled
 
-    tabs_list = _sidebar_state['tabs_list']
     tab_panels = _sidebar_state.get('tab_panels')
-
-    # 現在のタブの値を保存
-    if tab_panels is not None and enabled and _sidebar_state.get('current_tab') is None:
-        _sidebar_state['current_tab'] = tab_panels.value
-
-    # 無効化する場合、現在のタブを保持
-    if not enabled and tab_panels is not None:
-        _sidebar_state['current_tab'] = tab_panels.value
-
-    # タブを無効化/有効化
-    for tab in tabs_list:
-        try:
-            if enabled:
-                tab._props.pop('disable', None)
-            else:
-                tab._props['disable'] = True
-            tab.update()
-        except Exception:
-            pass
-
-    # 無効化してもタブパネルの値は変更しない（現在のタブを維持）
-    # ユーザーがクリックできないようにするだけで十分
+    if tab_panels is not None:
+        if not enabled:
+            # 再構築開始: 現在のタブをロック
+            _locked_tab = tab_panels.value
+        else:
+            # 再構築終了: ロック解除
+            _locked_tab = None
 
 
 def register_sidebar_elements(
@@ -135,6 +123,15 @@ def create_sidebar(
 
         # タブの内容パネル
         tab_panels = ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4')
+
+        # タブ切り替え時に再構築中は元のタブに戻す
+        def _on_tab_panel_change(e: Any) -> None:
+            global _is_rebuilding, _locked_tab
+            if _is_rebuilding and _locked_tab is not None:
+                # 再構築中はロックされたタブに戻す
+                tab_panels.value = _locked_tab
+
+        tab_panels.on_value_change(_on_tab_panel_change)
 
         # EXPタブ
         with tab_panels:
