@@ -107,6 +107,7 @@ async def _rebuild_database(
     rebuild_button.enabled = False
     rebuild_button.set_text('再構築中...')
     cancel_button.set_visibility(True)
+    cancel_button.enabled = True
     progress_spinner.set_visibility(True)
     progress_label.set_text('スキャン開始...')
 
@@ -132,7 +133,12 @@ async def _rebuild_database(
             else:
                 _handle_rebuild_failure(message)
     except Exception as e:
-        _handle_rebuild_exception(str(e))
+        error_msg = str(e)
+        if 'Connection' in error_msg or 'connection' in error_msg.lower():
+            progress_label.set_text('コネクションエラー: LM Studioを確認してください')
+            ui.notify(f'コネクションエラーが発生しました: LM Studioが起動しているか確認してください', color='red', timeout=10000)
+        else:
+            _handle_rebuild_exception(error_msg)
     finally:
         # UIを元に戻す
         rebuild_button.enabled = True

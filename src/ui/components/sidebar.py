@@ -27,34 +27,54 @@ _sidebar_state: Dict[str, Any] = {
     'tabs': None,
     'tab_panels': None,
     'tabs_list': [],
+    'current_tab': None,
+    'tab_panels_ref': None,
 }
 
 
-def set_sidebar_tabs_enabled(enabled: bool) -> None:
+def set_sidebar_tabs_enabled(enabled: bool, target_tab: Any = None) -> None:
     """サイドバーのタブ切り替えを有効化/無効化する.
 
     Args:
         enabled: 有効化する場合はTrue、無効化する場合はFalse
+        target_tab: 無効化時に表示するタブ（Noneの場合は現在のタブを維持）
     """
+    tabs_list = _sidebar_state['tabs_list']
+    tab_panels = _sidebar_state.get('tab_panels')
+
+    # 現在のタブの値を保存
+    if tab_panels is not None and enabled:
+        _sidebar_state['current_tab'] = tab_panels.value
+
     # タブを無効化/有効化
-    if _sidebar_state['tabs'] is not None:
-        for tab in _sidebar_state['tabs_list']:
-            try:
-                if enabled:
-                    tab.props(remove='disable')
-                else:
-                    tab.props('disable')
-            except Exception:
-                pass
-    # TabPanels内の全要素を反復処理して無効化/有効化
-    if _sidebar_state['tab_panels'] is not None:
+    for tab in tabs_list:
         try:
             if enabled:
-                _sidebar_state['tab_panels'].props(remove='disable')
+                tab._props.pop('disable', None)
             else:
-                _sidebar_state['tab_panels'].props('disable')
+                tab._props['disable'] = True
+            tab.update()
         except Exception:
             pass
+
+    # 無効化する場合、指定されたタブまたは設定タブに切り替え
+    if not enabled and tab_panels is not None:
+        if target_tab is not None:
+            tab_panels.set_value(target_tab)
+        else:
+            # 現在のタブを保存して設定タブに切り替え
+            _sidebar_state['current_tab'] = tab_panels.value
+            # tab_setを探す
+            tab_set = None
+            for t in tabs_list:
+                if hasattr(t, 'name') and t.name == 'SET':
+                    tab_set = t
+                    break
+            if tab_set:
+                tab_panels.set_value(tab_set)
+    # 有効化する場合、保存されたタブに戻す
+    elif enabled and tab_panels is not None and _sidebar_state.get('current_tab') is not None:
+        tab_panels.set_value(_sidebar_state['current_tab'])
 
 
 def register_sidebar_elements(
@@ -72,6 +92,7 @@ def register_sidebar_elements(
     _sidebar_state['tabs'] = tabs
     _sidebar_state['tab_panels'] = tab_panels
     _sidebar_state['tabs_list'] = tabs_list
+    _sidebar_state['tab_panels_ref'] = tab_panels
 
 
 def create_sidebar(
