@@ -18,10 +18,6 @@ from src.ui.components.sidebar_tabs.chat_history_tab import (
     _render_chat_list,
     _start_new_chat,
 )
-from src.ui.components.sidebar_tabs.todo_tab import (
-    show_add_todo_dialog,
-    _refresh_todo_list,
-)
 
 # チャット結果コンテナへの参照
 _chat_results_ref: Dict[str, Any] = {'container': None}
