@@ -36,12 +36,30 @@ def set_sidebar_tabs_enabled(enabled: bool) -> None:
     Args:
         enabled: 有効化する場合はTrue、無効化する場合はFalse
     """
-    tabs_list = _sidebar_state.get('tabs_list', [])
-    for tab in tabs_list:
-        try:
-            tab.set_enabled(enabled)
-        except Exception:
-            pass
+    tabs = _sidebar_state.get('tabs')
+    print(f"[DEBUG] [Tab] Toggle Tabs Interaction: {enabled} (Current Value: {tabs.value if tabs else 'None'})")
+    
+    if tabs:
+        if not enabled:
+            # 現在アクティブなタブを永続化（接続断などでリセットされた場合に備える）
+            try:
+                app.storage.user['active_sidebar_tab'] = tabs.value
+            except RuntimeError:
+                pass
+            # クリック操作を無効化し、見た目を少し薄くする
+            tabs.classes(add='pointer-events-none opacity-80 transistion-opacity')
+        else:
+            # クリック操作を有効化
+            tabs.classes(remove='pointer-events-none opacity-80')
+            
+            # 永続化ストレージから値を復元
+            try:
+                saved_tab = app.storage.user.get('active_sidebar_tab')
+                if saved_tab:
+                    print(f"[DEBUG] [Tab] Restoring Active Tab: {saved_tab}")
+                    tabs.value = saved_tab
+            except RuntimeError:
+                pass
 
 
 def register_sidebar_elements(
@@ -95,9 +113,28 @@ def create_sidebar(
     if state is None:
         state = {'hit_counts': Counter()}
 
+    # 共有の統計情報ラベル辞書 (SETタブとSTSタブで共有)
+    shared_stats_labels: Dict[str, ui.label] = {}
+
+    # タブ変更時のコールバック（永続化のため）
+    def handle_tab_change(e):
+        try:
+            app.storage.user['active_sidebar_tab'] = e.value
+            print(f"[DEBUG] [Tab] User switched to: {e.value}")
+        except RuntimeError:
+            pass
+
     with ui.left_drawer(fixed=True).classes('p-0 bg-[#2d3748]') as drawer:
+        # 初期表示タブを取得（永続化ストレージから）
+        try:
+            initial_tab_value = app.storage.user.get('active_sidebar_tab', 'EXP')
+        except RuntimeError:
+            initial_tab_value = 'EXP'
+            
+        print(f"[DEBUG] [UI] Creating Sidebar (Initial Tab: {initial_tab_value})")
+
         # サイドバー内のタブナビゲーション
-        with ui.tabs().classes('w-full text-slate-500') as tabs:
+        with ui.tabs(value=initial_tab_value, on_change=handle_tab_change).classes('w-full text-slate-500') as tabs:
             tab_exp = ui.tab('EXP', icon='account_tree').style('font-size: 11px;')
             tab_cht = ui.tab('CHATS', icon='chat').style('font-size: 11px;')
             tab_tod = ui.tab('TODOS', icon='check_box').style('font-size: 11px;')
@@ -105,7 +142,8 @@ def create_sidebar(
             tab_sts = ui.tab('STS', icon='hub').style('font-size: 11px;')
 
         # タブの内容パネル
-        tab_panels = ui.tab_panels(tabs, value=tab_exp).classes('w-full bg-transparent p-4')
+        # Note: tabs.value と同期するため、ここでも initial_tab_value を考慮
+        tab_panels = ui.tab_panels(tabs, value=initial_tab_value).classes('w-full bg-transparent p-4')
 
         # EXPタブ
         with tab_panels:
@@ -127,18 +165,28 @@ def create_sidebar(
         with tab_panels:
             with ui.tab_panel(tab_set):
                 ui.label('CONFIG').classes('text-[10px] text-slate-600 mb-4 tracking-widest')
-                create_settings_tab(backend, on_tab_toggle=on_tab_toggle)
+                create_settings_tab(backend, stats_labels=shared_stats_labels)
 
         # STSタブ
         with tab_panels:
             with ui.tab_panel(tab_sts).classes('p-6'):
                 ui.label('SYSTEM STATUS').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
-                create_status_tab(backend)
+                create_status_tab(backend, stats_labels=shared_stats_labels)
 
         # シャットダウンボタン
         ui.button('SHUTDOWN', on_click=app.shutdown).props(
             'flat icon=power_settings_new color=red-4'
         ).classes('w-full mt-auto mb-4 px-4')
+
+    # 再構築状態を監視してタブの操作可否を同期する (リロード対策)
+    def sync_tabs_interaction():
+        is_rebuilding = backend.stats.get('is_rebuilding', False) if backend else False
+        if is_rebuilding:
+            tabs.classes(add='pointer-events-none opacity-80 transition-opacity')
+        else:
+            tabs.classes(remove='pointer-events-none opacity-80')
+    
+    ui.timer(1.0, sync_tabs_interaction)
 
     # サイドバー要素を登録
     register_sidebar_elements(tabs, tab_panels, [tab_exp, tab_cht, tab_tod, tab_set, tab_sts])

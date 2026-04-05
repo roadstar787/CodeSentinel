@@ -43,6 +43,16 @@ class TestSidebar:
             'priority_distribution': {'high': 1, 'medium': 0, 'low': 0}
         }
         backend.get_todo_service.return_value = mock_todo_service
+        
+        # 統計情報（再構築フラグを含む）を設定
+        backend.stats = {
+            "total_chunks": 100,
+            "is_rebuilding": False,
+            "lm_connected": True,
+            "model": "test-model",
+            "revision": "v0.4.0",
+            "last_rebuild": "Never"
+        }
         return backend
 
     def test_create_sidebar_returns_correct_structure(self, mock_backend):

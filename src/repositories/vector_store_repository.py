@@ -3,7 +3,8 @@ FAISSベクトルストアの操作を提供します.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+import asyncio
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
@@ -68,7 +69,9 @@ class VectorStoreRepository(IVectorStore):
     def from_documents(
         cls,
         documents: List[Document],
-        config: Settings
+        config: Settings,
+        progress_callback: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[asyncio.Event] = None,
     ) -> "VectorStoreRepository":
         """ドキュメントからベクトルストアを作成（バッチ処理）.
 
@@ -97,10 +100,17 @@ class VectorStoreRepository(IVectorStore):
         texts = [doc.page_content for doc in documents]
         metadatas = [doc.metadata for doc in documents]
 
+        if progress_callback:
+            progress_callback(f"ベクトル登録開始 (合計 {total} 単位)")
+
         # 最初のバッチでインスタンスを作成
         first_batch_texts = texts[:batch_size]
         first_batch_metadatas = metadatas[:batch_size]
-        print(f"[DEBUG] [Thread] Processing first batch (1-{min(batch_size, total)})")
+        first_batch_end = min(batch_size, total)
+        print(f"[DEBUG] [Thread] Processing first batch (1-{first_batch_end})")
+        if progress_callback:
+            progress_callback(f"ベクトル登録中: 1-{first_batch_end} / {total}")
+            
         vectorstore = FAISS.from_texts(
             texts=first_batch_texts,
             embedding=embeddings,
@@ -109,10 +119,17 @@ class VectorStoreRepository(IVectorStore):
 
         # 残りのバッチを追加
         for i in range(batch_size, total, batch_size):
+            if cancel_event and cancel_event.is_set():
+                print(f"[DEBUG] [Thread] FAISS Building Interrupted by user.")
+                raise InterruptedError("再構築が中断されました")
+                
             batch_texts = texts[i: i + batch_size]
             batch_metadatas = metadatas[i: i + batch_size]
             current_count = i + len(batch_texts)
             print(f"[DEBUG] [Thread] Adding batch ({i + 1}-{current_count}) / {total}")
+            if progress_callback:
+                progress_callback(f"ベクトル登録中: {i + 1}-{current_count} / {total}")
+                
             vectorstore.add_texts(
                 texts=batch_texts,
                 metadatas=batch_metadatas

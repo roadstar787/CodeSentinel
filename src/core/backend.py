@@ -36,6 +36,8 @@ class RAGBackend:
         self.stats: Dict[str, Any] = {
             "total_chunks": 0,
             "is_rebuilding": False,
+            "status_text": "",
+            "last_notification": None,  # Optional[Dict[str, str]]
             "lm_connected": False,
             "model": "N/A",
             "revision": "v0.4.0",
@@ -126,9 +128,15 @@ class RAGBackend:
         self._rebuild_cancel_event.clear()
 
         try:
+            # 進行状況コールバックをラップしてstats内のstatus_textを更新
+            def _wrapped_progress_callback(status: str) -> None:
+                self.stats["status_text"] = status
+                if progress_callback:
+                    progress_callback(status)
+
             success, message = await self.document_service.rebuild_database(
                 cancel_event=self._rebuild_cancel_event,
-                progress_callback=progress_callback,
+                progress_callback=_wrapped_progress_callback,
             )
             if success:
                 # 再構築後にベクトルストアをロード
@@ -140,6 +148,7 @@ class RAGBackend:
             return False, f"Unexpected error during rebuild: {str(e)}"
         finally:
             self.stats["is_rebuilding"] = False
+            self.stats["status_text"] = ""
 
     def cancel_rebuild(self) -> None:
         """再構築を中断する."""

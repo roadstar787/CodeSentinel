@@ -8,14 +8,12 @@ from nicegui import ui, app
 def create_settings_tab(
     backend: Any,
     stats_labels: Optional[Dict[str, ui.label]] = None,
-    on_tab_toggle: Optional[Callable[[bool], None]] = None,
 ) -> ui.column:
     """設定タブを作成する.
 
     Args:
         backend: RAGBackendインスタンス
         stats_labels: 統計情報ラベル
-        on_tab_toggle: タブ切り替え無効化コールバック
 
     Returns:
         設定タブのコンテナ
@@ -36,36 +34,35 @@ def create_settings_tab(
                 on_click=lambda: _save_settings(backend, target_input, doc_input)
             ).props('color=blue-500').classes('w-full')
 
-            # 再構築用コンテナ
-            rebuild_button: ui.button = ui.button(
-                'データベース再構築',
-            ).props('color=orange-500').classes('w-full')
+            # 再構築用コンテナ (リアクティブ・バインド)
+            rebuild_button = ui.button().props('color=orange-500').classes('w-full')
+            rebuild_button.bind_text_from(backend.stats, 'is_rebuilding', 
+                                        backward=lambda x: '再構築中...' if x else 'データベース再構築')
+            rebuild_button.bind_enabled_from(backend.stats, 'is_rebuilding', 
+                                          backward=lambda x: not x)
 
-            cancel_button: ui.button = ui.button(
-                '中断',
-            ).props('color=red-500').classes('w-full')
-            cancel_button.set_visibility(False)
+            cancel_button = ui.button('中断').props('color=red-500').classes('w-full')
+            cancel_button.bind_visibility_from(backend.stats, 'is_rebuilding')
 
             # 進行状況表示
-            progress_spinner: ui.spinner = ui.spinner(size='md').props('color=orange')
-            progress_spinner.set_visibility(False)
+            progress_spinner = ui.spinner(size='md').props('color=orange')
+            progress_spinner.bind_visibility_from(backend.stats, 'is_rebuilding')
 
-            progress_label: ui.label = ui.label('').classes('text-white text-sm')
+            progress_label = ui.label().classes('text-white text-sm')
+            progress_label.bind_text_from(backend.stats, 'status_text')
 
-            # クリックハンドラを設定（要素作成後に設定）
-            rebuild_button.on_click(
-                lambda: _rebuild_database(
-                    backend, rebuild_button, cancel_button,
-                    progress_label, progress_spinner,
-                    stats_labels or {}, on_tab_toggle
-                )
-            )
-            cancel_button.on_click(
-                lambda: _cancel_rebuild(
-                    backend, rebuild_button, cancel_button,
-                    progress_label, progress_spinner, on_tab_toggle
-                )
-            )
+            # 通知監視タイマー
+            def _check_notifications():
+                noti = backend.stats.get('last_notification')
+                if noti:
+                    ui.notify(noti['message'], color=noti.get('color', 'info'), timeout=noti.get('timeout', 5000))
+                    backend.stats['last_notification'] = None
+
+            ui.timer(1.0, _check_notifications)
+
+            # クリックハンドラを設定 (バックエンドのみを渡す)
+            rebuild_button.on_click(lambda: _rebuild_database(backend))
+            cancel_button.on_click(lambda: _cancel_rebuild(backend))
 
     return container
 
@@ -89,81 +86,62 @@ def _save_settings(
     ui.notify('設定を保存しました')
 
 
-async def _rebuild_database(
-    backend: Any,
-    rebuild_button: ui.button,
-    cancel_button: ui.button,
-    progress_label: ui.label,
-    progress_spinner: ui.spinner,
-    stats_labels: Dict[str, ui.label],
-    on_tab_toggle: Optional[Callable[[bool], None]] = None,
-) -> None:
-    """データベースを再構築."""
+async def _rebuild_database(backend: Any) -> None:
+    """データベースを再構築 (UI非依存版)."""
     if not backend:
         ui.notify('バックエンドが利用できません', color='red')
         return
 
-    # UIを更新
-    rebuild_button.enabled = False
-    rebuild_button.set_text('再構築中...')
-    cancel_button.set_visibility(True)
-    cancel_button.enabled = True
-    progress_spinner.set_visibility(True)
-    progress_label.set_text('スキャン開始...')
-
-    # タブを無効化
-    if on_tab_toggle:
-        on_tab_toggle(False)
-
-    # 進行状況コールバック
-    def on_progress(status: str) -> None:
-        progress_label.set_text(status)
+    # ステート更新 (バインドにより全クライアントに反映)
+    backend.stats["status_text"] = "スキャン開始..."
+    # is_rebuilding は backend.rebuild_db 内で True に設定される
 
     try:
-        success, message = await backend.rebuild_db(progress_callback=on_progress)
+        # progress_callback は backend.rebuild_db 内で status_text を更新するようにラップ済み
+        success, message = await backend.rebuild_db()
+        
         if success:
-            # 統計情報を更新
-            _update_stats_labels(backend, stats_labels)
-            progress_label.set_text(f'完了: {message}')
-            ui.notify(f'データベース再構築が完了しました: {message}', color='positive', timeout=5000)
+            backend.stats["status_text"] = f"完了: {message}"
+            backend.stats["last_notification"] = {
+                "message": f"データベース再構築が完了しました: {message}",
+                "color": "positive",
+                "timeout": 5000
+            }
         else:
-            if message == '再構築を中断しました':
-                progress_label.set_text('中断しました')
-                ui.notify('データベース再構築を中断しました', color='warning', timeout=5000)
+            if message == "再構築を中断しました":
+                backend.stats["status_text"] = "中断しました"
+                backend.stats["last_notification"] = {
+                    "message": "データベース再構築を中断しました",
+                    "color": "warning",
+                    "timeout": 5000
+                }
             else:
-                _handle_rebuild_failure(message)
+                error_msg = f"再構築に失敗しました: {message}"
+                backend.stats["status_text"] = "失敗"
+                backend.stats["last_notification"] = {
+                    "message": error_msg,
+                    "color": "red",
+                    "timeout": 15000
+                }
     except Exception as e:
         error_msg = str(e)
-        if 'Connection' in error_msg or 'connection' in error_msg.lower():
-            progress_label.set_text('コネクションエラー: LM Studioを確認してください')
-            ui.notify(f'コネクションエラーが発生しました: LM Studioが起動しているか確認してください', color='red', timeout=10000)
-        else:
-            _handle_rebuild_exception(error_msg)
+        backend.stats["status_text"] = "エラー発生"
+        backend.stats["last_notification"] = {
+            "message": f"エラーが発生しました: {error_msg}",
+            "color": "red",
+            "timeout": 15000
+        }
     finally:
-        # UIを元に戻す
-        rebuild_button.enabled = True
-        rebuild_button.set_text('データベース再構築')
-        cancel_button.set_visibility(False)
-        progress_spinner.set_visibility(False)
-
-        # タブを再有効化
-        if on_tab_toggle:
-            on_tab_toggle(True)
+        # is_rebuilding は backend.rebuild_db の finally で False に設定される
+        # 必要ならここで追加のクリーンアップ
+        pass
 
 
-def _cancel_rebuild(
-    backend: Any,
-    rebuild_button: ui.button,
-    cancel_button: ui.button,
-    progress_label: ui.label,
-    progress_spinner: ui.spinner,
-    on_tab_toggle: Optional[Callable[[bool], None]] = None,
-) -> None:
-    """再構築を中断."""
+def _cancel_rebuild(backend: Any) -> None:
+    """再構築を中断 (UI非依存版)."""
     if backend:
         backend.cancel_rebuild()
-        progress_label.set_text('中断しています...')
-        cancel_button.enabled = False
+        backend.stats["status_text"] = "中断しています..."
 
 
 def _update_stats_labels(

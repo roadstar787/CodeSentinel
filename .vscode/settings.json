@@ -10,7 +10,7 @@
     ],
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
-        "source.fixAll.ruff": true
+        "source.fixAll.ruff": "explicit"
     },
     "python.formatting.provider": "none",
     "ruff.enable": true,

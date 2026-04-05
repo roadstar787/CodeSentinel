@@ -67,12 +67,22 @@ class DocumentService:
             for doc in processed_docs
         ]
 
-        self.vector_store = VectorStoreRepository.from_documents(documents, self.config)
-        
+        # ベクトルストアの作成を別スレッドで実行 (CPUブロッキング回避)
+        from_docs_lambda = lambda: VectorStoreRepository.from_documents(
+            documents, self.config, progress_callback=progress_callback, cancel_event=cancel_event
+        )
+        try:
+            self.vector_store = await asyncio.to_thread(from_docs_lambda)
+        except Exception as e:
+            # 中断例外のチェック（スレッド越しのため詳細なチェックが必要な場合があるが、まずはメッセージで判断）
+            if "中断されました" in str(e):
+                return False, "再構築を中断しました"
+            raise e
+
         # ベクトルストアをローカルに保存
         db_path = str(self.config.paths.db_full_path)
-        self.vector_store.save_local(db_path)
-        
+        await asyncio.to_thread(self.vector_store.save_local, db_path)
+
         self.stats["total_chunks"] = len(documents)
         self.stats["last_rebuild"] = "Just now"
         self.stats["vector_store_loaded"] = True

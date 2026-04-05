@@ -19,13 +19,13 @@ def create_status_tab(
         ステータスタブのコンテナ
 
     """
-    stats_labels_internal: Dict[str, ui.label] = {}
+    labels = stats_labels if stats_labels is not None else {}
     stats_container = ui.column().classes('w-full')
 
-    _render_stats(stats_container, backend, stats_labels_internal)
+    _render_stats(stats_container, backend, labels)
 
     # 定期更新タイマー
-    _start_status_update_timer(backend, stats_labels_internal)
+    _start_status_update_timer(backend, labels)
 
     return stats_container
 

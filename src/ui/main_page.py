@@ -43,11 +43,12 @@ async def main_page(backend: RAGBackend) -> Tuple[Dict[str, Any], Dict[str, Any]
 
 def create_main_ui(backend: RAGBackend) -> None:
     """メインUIを作成する.
-
+    
     Args:
         backend: RAGBackendインスタンス
-
+        
     """
+    print(f"[DEBUG] [UI] Initializing Main UI (Client ID: {id(backend)})")
     # ユーザー設定を永続化ストレージから復元（なければデフォルト）
     try:
         saved_settings = app.storage.user.get('user_settings', {})

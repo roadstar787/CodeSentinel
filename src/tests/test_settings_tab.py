@@ -10,6 +10,7 @@ class TestSettingsTab:
     @pytest.fixture
     def mock_backend(self):
         """モックバックエンド."""
+        from unittest.mock import AsyncMock
         backend = Mock()
         backend.get_user_settings.return_value = {
             'target_dir': '/test/target',
@@ -17,6 +18,7 @@ class TestSettingsTab:
             'mode': 'Normal',
         }
         backend.update_user_settings.return_value = None
+        backend.rebuild_db = AsyncMock()
 
         mock_doc_service = Mock()
         mock_doc_service.get_statistics.return_value = {
@@ -27,6 +29,13 @@ class TestSettingsTab:
         }
         backend.get_document_service.return_value = mock_doc_service
 
+        # 統計情報（初期状態）
+        backend.stats = {
+            "total_chunks": 0,
+            "is_rebuilding": False,
+            "status_text": "",
+            "last_notification": None,
+        }
         return backend
 
     def test_create_settings_tab_returns_column(self, mock_backend):
@@ -68,21 +77,17 @@ class TestSettingsTab:
         mock_backend.rebuild_db.return_value = (True, 'Success')
 
         async def run_test() -> None:
-            with patch('src.ui.components.sidebar_tabs.settings_tab.ui') as mock_ui:
-                mock_notify = Mock()
-                mock_ui.notify = mock_notify
-                # モックUI要素を作成
-                mock_rebuild_button = Mock()
-                mock_cancel_button = Mock()
-                mock_progress_label = Mock()
-                mock_progress_spinner = Mock()
-                await _rebuild_database(
-                    mock_backend, mock_rebuild_button, mock_cancel_button,
-                    mock_progress_label, mock_progress_spinner, {}
-                )
-                mock_backend.rebuild_db.assert_called_once()
+            # 実行
+            await _rebuild_database(mock_backend)
+            
+            # 検証
+            mock_backend.rebuild_db.assert_called_once()
+            assert "完了" in mock_backend.stats["status_text"]
+            assert mock_backend.stats["last_notification"] is not None
+            assert mock_backend.stats["last_notification"]["color"] == "positive"
 
-        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run_test())
+        import asyncio
+        asyncio.run(run_test())
 
     def test_rebuild_database_failure(self, mock_backend):
         """データベース再構築失敗をテスト."""
@@ -92,21 +97,16 @@ class TestSettingsTab:
         mock_backend.rebuild_db.return_value = (False, 'No models loaded')
 
         async def run_test() -> None:
-            with patch('src.ui.components.sidebar_tabs.settings_tab.ui') as mock_ui:
-                mock_notify = Mock()
-                mock_ui.notify = mock_notify
-                # モックUI要素を作成
-                mock_rebuild_button = Mock()
-                mock_cancel_button = Mock()
-                mock_progress_label = Mock()
-                mock_progress_spinner = Mock()
-                await _rebuild_database(
-                    mock_backend, mock_rebuild_button, mock_cancel_button,
-                    mock_progress_label, mock_progress_spinner, {}
-                )
-                assert mock_notify.call_count >= 1
+            # 実行
+            await _rebuild_database(mock_backend)
+            
+            # 検証
+            assert "失敗" in mock_backend.stats["status_text"] or "完了" not in mock_backend.stats["status_text"]
+            assert mock_backend.stats["last_notification"] is not None
+            assert mock_backend.stats["last_notification"]["color"] == "red"
 
-        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run_test())
+        import asyncio
+        asyncio.run(run_test())
 
     def test_update_stats_labels(self, mock_backend):
         """統計情報ラベルの更新をテスト."""

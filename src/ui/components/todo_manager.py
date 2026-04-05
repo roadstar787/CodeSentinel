@@ -106,26 +106,23 @@ def _render_todo_item(
             with ui.row().classes('items-center gap-1'):
                 ui.checkbox(
                     value=todo.get('completed', False),
-                    on_change=lambda e, tid=todo['id']: _toggle_completion(tid, refresh)
+                    on_change=lambda e, tid=todo['id']: _toggle_completion(backend, tid, refresh)
                 ).props('dense color=green-5')
                 ui.button(
                     icon='delete',
-                    on_click=lambda e, tid=todo['id']: _delete_todo(tid, refresh)
+                    on_click=lambda e, tid=todo['id']: _delete_todo(backend, tid, refresh)
                 ).props('flat dense mini color=red-400 size=xs')
 
 
-def _toggle_completion(todo_id: str, refresh_func: Callable) -> None:
+def _toggle_completion(backend: RAGBackend, todo_id: str, refresh_func: Callable) -> None:
     """完了状態を切り替える.
-
+ 
     Args:
+        backend: RAGBackendインスタンス
         todo_id: ToDo ID
         refresh_func: 更新関数
-
+ 
     """
-    from src.core.backend import RAGBackend
-    # グローバルなバックエンドインスタンスを取得
-    import src.app as app_module
-    backend = app_module.get_backend()
     if backend:
         updated = backend.get_todo_service().toggle_todo_completion(todo_id)
         if updated:
@@ -133,16 +130,15 @@ def _toggle_completion(todo_id: str, refresh_func: Callable) -> None:
         refresh_func()
 
 
-def _delete_todo(todo_id: str, refresh_func: Callable) -> None:
+def _delete_todo(backend: RAGBackend, todo_id: str, refresh_func: Callable) -> None:
     """ToDoを削除する.
-
+ 
     Args:
+        backend: RAGBackendインスタンス
         todo_id: ToDo ID
         refresh_func: 更新関数
-
+ 
     """
-    import src.app as app_module
-    backend = app_module.get_backend()
     if backend:
         success = backend.get_todo_service().delete_todo(todo_id)
         if success:
