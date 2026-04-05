@@ -39,6 +39,7 @@ class RAGBackend:
             "status_text": "",
             "last_notification": None,  # Optional[Dict[str, str]]
             "chat_history": [],         # List[Dict[str, Any]]
+            "streaming_content": "",    # Real-time response chunk
             "is_chat_generating": False,
             "lm_connected": False,
             "model": "N/A",

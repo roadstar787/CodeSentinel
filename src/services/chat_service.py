@@ -7,7 +7,7 @@ import uuid
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -106,14 +106,16 @@ Context:
         self,
         query: str,
         context: str,
-        mode: str = "Normal"
+        mode: str = "Normal",
+        on_token: Optional[Callable[[str], None]] = None
     ) -> Dict[str, Any]:
-        """チャット応答を生成.
+        """チャット応答を生成 (ストリーミング対応).
 
         Args:
             query: ユーザークエリ
             context: コンテキスト
             mode: モード
+            on_token: トークンごとのコールバック
 
         Returns:
             応答情報
@@ -130,6 +132,8 @@ Context:
             full_response = ""
             async for chunk in chain.astream({"query": query, "context": context}):
                 full_response += chunk
+                if on_token:
+                    on_token(chunk)
 
             # ギャップ解析（Gapモードの場合）
             gaps: List[Dict[str, Any]] = []

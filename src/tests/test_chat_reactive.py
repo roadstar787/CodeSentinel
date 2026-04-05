@@ -20,6 +20,7 @@ class TestChatReactive:
         backend = Mock()
         backend.stats = {
             "chat_history": [],
+            "streaming_content": "",
             "is_chat_generating": False,
             "status_text": "",
             "last_notification": None
@@ -55,8 +56,8 @@ class TestChatReactive:
         with patch("src.ui.components.chat_interface._generate_response_async", new_callable=AsyncMock) as mock_gen, \
              patch("src.ui.components.chat_interface.ui") as mock_ui, \
              patch("src.ui.components.chat_interface.app") as mock_app:
-            # 実行
-            _handle_query(
+            # 実行 (Async)
+            await _handle_query(
                 session={"id": "test-id", "history": []},
                 input_field=mock_input_field,
                 chat_results=mock_chat_results,

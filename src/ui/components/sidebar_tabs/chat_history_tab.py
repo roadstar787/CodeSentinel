@@ -68,17 +68,17 @@ def _render_chat_list(
         else:
             for chat in chats[:10]:
                 chat_id = chat.get('id', '')
-                with ui.row().classes('w-full items-center cursor-pointer hover:bg-gray-700 p-2 rounded'):
-                    ui.icon('chat', size='sm').classes('text-blue-400')
-                    ui.label(chat.get('title', 'Untitled')).classes(
-                        'text-white flex-1 cursor-pointer'
-                    ).on('click', lambda e, cid=chat_id: _load_chat(cid, backend, session, container))
-                    ui.label(chat.get('date', '')[:10]).classes('text-gray-400 text-xs')
+                with ui.row().classes('w-full items-start cursor-pointer hover:bg-gray-800/50 p-2 rounded gap-3'):
+                    ui.icon('chat', size='18px').classes('text-indigo-400 mt-1')
+                    
+                    with ui.column().classes('flex-1 gap-0 cursor-pointer').on('click', lambda e, cid=chat_id: _load_chat(cid, backend, session, container)):
+                        ui.label(chat.get('title', 'Untitled')).classes('text-slate-200 text-sm font-medium leading-tight line-clamp-1')
+                        ui.label(chat.get('date', '')).classes('text-slate-500 text-[10px]')
 
                     ui.button(
                         icon='delete',
                         on_click=lambda e, cid=chat_id: _delete_chat(cid, backend, session, container)
-                    ).props('flat dense size=sm color=red-4').classes('opacity-50 hover:opacity-100')
+                    ).props('flat dense size=sm color=red-4').classes('opacity-30 hover:opacity-100 mt-0.5')
 
 
 def _load_chat(

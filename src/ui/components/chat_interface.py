@@ -1,6 +1,7 @@
 """チャットインターフェースUIコンポーネント"""
 
 import json
+import asyncio
 from typing import Any, Callable, Dict, List, Optional
 
 from nicegui import ui, app
@@ -88,22 +89,31 @@ def create_chat_interface(
 
         # 履歴の変更を監視して再描画するタイマー
         last_history_len = [len(backend.stats.get('chat_history', []))]
+        last_streaming_content = [""]
+
         def check_history():
             current_len = len(backend.stats.get('chat_history', []))
-            if current_len != last_history_len[0]:
+            current_streaming = backend.stats.get('streaming_content', '')
+            
+            # 履歴の長さが変わった、またはストリーミング内容が変わった場合にリフレッシュ
+            if current_len != last_history_len[0] or current_streaming != last_streaming_content[0]:
                 last_history_len[0] = current_len
+                last_streaming_content[0] = current_streaming
                 render_messages.refresh()
         
-        ui.timer(1.0, check_history)
+        # ストリーミング中は頻度を上げる (0.2s)、通常は1.0s
+        ui.timer(0.2, check_history)
 
         # 入力エリア
         with ui.row().classes('w-full items-center gap-2'):
             input_field = ui.input(placeholder='メッセージを入力...').classes('flex-grow')
             input_field.bind_enabled_from(backend.stats, 'is_chat_generating', backward=lambda x: not x)
             
-            send_button = ui.button('送信', icon='send', on_click=lambda: _handle_query(
-                session, input_field, chat_results_container, state, backend, preview_open
-            )).props('unelevated color=indigo')
+            # フォーム送信時の処理 (Async)
+            async def submit_query():
+                await _handle_query(session, input_field, chat_results_container, state, backend, preview_open)
+
+            send_button = ui.button('送信', icon='send', on_click=submit_query).props('unelevated color=indigo')
             send_button.bind_enabled_from(backend.stats, 'is_chat_generating', backward=lambda x: not x)
             
             # 生成中スピナー
@@ -114,7 +124,7 @@ def create_chat_interface(
     return container
 
 
-def _handle_query(
+async def _handle_query(
     session: Dict[str, Any],
     input_field: ui.input,
     chat_results: ui.column,
@@ -122,7 +132,7 @@ def _handle_query(
     backend: RAGBackend,
     preview_open: Optional[Callable] = None,
 ) -> None:
-    """クエリを処理する (ステート更新版)."""
+    """クエリを非同期で処理する (ストリーミング版)."""
     query = input_field.value.strip()
     if not query or backend.stats.get('is_chat_generating'):
         return
@@ -132,49 +142,63 @@ def _handle_query(
     # 状態更新: ユーザーメッセージを追加
     backend.stats['chat_history'].append({"role": "user", "content": query})
     backend.stats['is_chat_generating'] = True
+    backend.stats['streaming_content'] = ""
 
-    # 検索とコンテキスト準備
+    # 検索とコンテキスト準備 (ブロッキング回避のため別スレッドまたはawait)
     retriever = backend.get_retriever()
     if not retriever:
         backend.stats['chat_history'].append({"role": "ai", "content": "Database not loaded."})
         backend.stats['is_chat_generating'] = False
         return
 
-    # 検索
-    docs = retriever.invoke(query)
+    # 検索 (非同期実行)
+    import functools
+    loop = asyncio.get_event_loop()
+    docs = await loop.run_in_executor(None, functools.partial(retriever.invoke, query))
+    
     state['hit_counts'] = [d.metadata['source'] for d in docs]
     
     chat_service = backend.get_chat_service()
     unique_hits = chat_service.process_search_results(docs)
     context = chat_service.format_context(docs)
 
-    # 非同期生成を開始 (NiceGUIの非同期タスクとして実行)
-    ui.timer(0.1, lambda: app.background_tasks.create(_generate_response_async(
+    # 回答生成の実行
+    await _generate_response_async(
         query, context, None, None, session, chat_results, backend, unique_hits, preview_open
-    )), once=True)
+    )
 
 
 async def _generate_response_async(
     query: str,
     context: str,
-    md: Any,             # 旧設計互換（未使用）
-    source_row: Any,     # 旧設計互換（未使用）
+    md: Any,
+    source_row: Any,
     session: Dict[str, Any],
-    chat_results: Any,   # 旧設計互換（未使用）
+    chat_results: Any,
     backend: RAGBackend,
     unique_hits: List[tuple],
     preview_open: Optional[Callable] = None,
 ) -> None:
-    """非同期で応答を生成し、ステートを更新する."""
+    """応答を生成し、リアルタイムでステートを更新する."""
     try:
         chat_service = backend.get_chat_service()
-        llm_response = await chat_service.generate_response(query, context, backend.mode)
+        
+        # ストリーミング用コールバック
+        def on_token(token: str):
+            backend.stats['streaming_content'] += token
+
+        llm_response = await chat_service.generate_response(
+            query, 
+            context, 
+            backend.mode,
+            on_token=on_token
+        )
 
         full = llm_response['content']
         gaps = llm_response.get('gaps', [])
         json_data = llm_response.get('json_data')
 
-        # 履歴 (stats) に追加して保存
+        # 生成完了: streaming_content を履歴に昇格
         ai_message = {
             "role": "ai", 
             "content": full, 
@@ -183,14 +207,18 @@ async def _generate_response_async(
             "json_data": json_data
         }
         backend.stats['chat_history'].append(ai_message)
+        backend.stats['streaming_content'] = "" # クリア
         
-        # 従来のセッション同期も維持
+        # セッション同期と保存
         session['history'] = backend.stats['chat_history']
         title = query[:20] + ("..." if len(query) > 20 else "")
         backend.save_chat(session['id'], session['history'], title if len(session['history']) <= 2 else None)
         
+    except Exception as e:
+        backend.stats['chat_history'].append({"role": "ai", "content": f"Error: {str(e)}"})
     finally:
         backend.stats['is_chat_generating'] = False
+        backend.stats['streaming_content'] = ""
 
 
 def _render_chat_history(
@@ -240,6 +268,11 @@ def _render_chat_history(
                 with ui.row().classes('w-full justify-end items-center mb-4'):
                     ui.button('COPY MARKDOWN', icon='content_copy', on_click=lambda f=msg['content']: ui.run_javascript(f'navigator.clipboard.writeText({json.dumps(f)})')) \
                         .props('flat dense color=slate-400 size=sm').classes('opacity-50 hover:opacity-100')
+
+        # ストリーミング中のコンテンツがあれば追加
+        streaming_content = backend.stats.get('streaming_content', '') if backend else ''
+        if streaming_content:
+            ui.markdown(streaming_content).classes('text-white text-sm p-4 w-full border-b border-slate-600 animate-pulse')
 
 
 def _render_json_card(json_data: Any) -> None:
