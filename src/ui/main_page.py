@@ -108,11 +108,21 @@ def create_main_ui(backend: RAGBackend) -> None:
         chat_results=chat_results,
     )
 
+    # モード切り替えコールバック
+    def on_toggle_mode(e: Any) -> None:
+        backend.mode = e.value
+        try:
+            app.storage.user['mode'] = e.value
+        except RuntimeError:
+            pass
+        ui.notify(f"モードを{e.value}に変更しました", color='info')
+
     # ヘッダーの作成（drawerを渡す）
     create_header(
         app_name="CodeSentinel",
         version="0.4.0",
         drawer=drawer,
+        on_toggle_mode=on_toggle_mode,
     )
 
     # 初期化タイマー
