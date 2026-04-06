@@ -53,6 +53,11 @@ class TestSidebar:
             "revision": "v0.4.0",
             "last_rebuild": "Never"
         }
+        
+        # document_service属性を直接設定（status_tabで使用）
+        backend.document_service = Mock()
+        backend.document_service.vector_store = Mock()
+        
         return backend
 
     def test_create_sidebar_returns_correct_structure(self, mock_backend):

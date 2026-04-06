@@ -69,5 +69,24 @@ def apply_global_styles() -> None:
             textarea::placeholder, .q-field__native::placeholder {
                 color: #94a3b8 !important;
             }
+
+            /* ステータスタブ用スタイル */
+            .status-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                width: 100%;
+            }
+            .status-label {
+                font-size: 12px;
+                color: #94a3b8;
+                flex-shrink: 0;
+            }
+            .status-value {
+                font-size: 12px;
+                font-weight: 500;
+                text-align: right;
+            }
         </style>
     ''')
