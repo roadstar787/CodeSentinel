@@ -113,8 +113,9 @@ def create_chat_interface(
 
     # 固定フッターとしての入力エリア
     with ui.footer().classes('bg-transparent p-0'):
-        with ui.row().classes('w-full max-w-4xl mx-auto p-4 bg-white border border-slate-300 items-end gap-2 shadow-lg rounded-t-xl'):
-            input_field = ui.textarea(placeholder='メッセージを入力...').classes('flex-grow text-sm').props('borderless autogrow').style('color: #0f172a !important;')
+        with ui.row().classes('w-full max-w-4xl mx-auto p-4 bg-slate-800 border border-slate-600 items-end gap-2 shadow-lg rounded-t-xl'):
+            input_field = ui.textarea(placeholder='メッセージを入力...').classes('flex-grow text-sm text-white').props('borderless autogrow').style('background-color: #1e293b !important;')
+            input_field.style('color: #ffffff !important;')
             input_field.bind_enabled_from(backend.stats, 'is_chat_generating', backward=lambda x: not x)
             
             # Enterで送信 (Shift+Enterは改行)

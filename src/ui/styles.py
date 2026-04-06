@@ -61,5 +61,13 @@ def apply_global_styles() -> None:
             .json-card-key { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
             .json-card-toggle { font-size: 10px; color: #94a3b8; }
             .json-card-value { margin: 0; padding: 12px; font-family: "JetBrains Mono", monospace; font-size: 12px; overflow-x: auto; max-height: 300px; }
+
+            /* textarea入力欄の文字色を確実に適用（ダークテーマ用） */
+            textarea, .q-field__native, .q-field__input {
+                color: #ffffff !important;
+            }
+            textarea::placeholder, .q-field__native::placeholder {
+                color: #94a3b8 !important;
+            }
         </style>
     ''')
