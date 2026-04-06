@@ -43,6 +43,20 @@ def create_gap_card(gap_data: Dict[str, Any]) -> ui.card:
                 with ui.column().classes('flex-1'):
                     ui.label('現状').classes('text-[9px] text-slate-500 font-bold uppercase')
                     ui.label(actual).classes('text-[10px] text-orange-700 bg-orange-50 p-2 rounded')
+
+        # コード比較
+        current_code = gap_data.get('current_code', '')
+        proposed_code = gap_data.get('proposed_code', '')
+
+        if current_code:
+            with ui.column().classes('w-full mt-2'):
+                ui.label('現在のコード').classes('text-[9px] text-slate-500 font-bold uppercase opacity-60')
+                ui.code(current_code).classes('text-[10px] w-full bg-slate-900 text-slate-300 p-2 rounded border border-slate-700 overflow-x-auto')
+
+        if proposed_code:
+            with ui.column().classes('w-full mt-2'):
+                ui.label('改修提案のコード').classes('text-[9px] text-indigo-500 font-bold uppercase')
+                ui.code(proposed_code).classes('text-[10px] w-full bg-slate-900 text-indigo-100 p-2 rounded border border-indigo-400/50 overflow-x-auto shadow-sm')
     
     return card
 

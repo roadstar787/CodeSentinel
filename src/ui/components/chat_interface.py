@@ -100,6 +100,9 @@ def create_chat_interface(
                 last_history_len[0] = current_len
                 last_streaming_content[0] = current_streaming
                 render_messages.refresh()
+                
+                # 自動スクロールをスケジュール (再描画の直後、0.1s後に実行が確実)
+                ui.timer(0.1, lambda: ui.run_javascript(f'const el = document.getElementById("{chat_results_container.id}"); if (el) el.scrollTo({{top: el.scrollHeight, behavior: "smooth"}});'), once=True)
         
         # ストリーミング中は頻度を上げる (0.2s)、通常は1.0s
         ui.timer(0.2, check_history)

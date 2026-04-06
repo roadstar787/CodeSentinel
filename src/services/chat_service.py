@@ -89,8 +89,15 @@ Q: {query}
 例:
 <gaps>
 [
-  {{"file": "main.py", "line": 42, "issue": "仕様ではAとされていますが、実装はBになっています"}},
-  {{"file": "utils.py", "line": 10, "issue": "仕様にある例外処理が実装されていません"}}
+  {{
+    "file": "main.py", 
+    "line": 42, 
+    "issue": "仕様と実装の不整合",
+    "expected": "仕様上の動作説明",
+    "actual": "現状の動作説明",
+    "current_code": "def func():\n    pass",
+    "proposed_code": "def func():\n    # 修正後のコード"
+  }}
 ]
 </gaps>
 
