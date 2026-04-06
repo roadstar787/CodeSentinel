@@ -25,6 +25,7 @@ class TestTodoTab:
             'priority_distribution': {'high': 1, 'medium': 1, 'low': 0},
         }
         backend.get_todo_service.return_value = mock_todo_service
+        backend.stats = {'todos': mock_todo_service.list_todos()}
 
         return backend
 
@@ -145,5 +146,12 @@ class TestTodoTab:
 
         mock_notify = Mock()
         mock_ui.notify = mock_notify
+
+        # refreshableデコレータをモック
+        def mock_refreshable(f):
+            f() # 初期実行をシミュレート
+            return f
+        mock_ui.refreshable = mock_refreshable
+        mock_ui.timer = Mock()
 
         return mock_ui

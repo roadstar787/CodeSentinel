@@ -159,7 +159,7 @@ class TestCreateExplorerTab:
         with patch('src.ui.components.sidebar_tabs.explorer_tab.ui') as mock_ui:
             self._setup_mock_ui(mock_ui)
 
-            result = create_explorer_tab(mock_backend, Mock(), Mock())
+            result = create_explorer_tab(mock_backend, {'hit_counts': Counter()}, Mock())
 
             assert result is not None
 
@@ -172,7 +172,7 @@ class TestCreateExplorerTab:
         with patch('src.ui.components.sidebar_tabs.explorer_tab.ui') as mock_ui:
             self._setup_mock_ui(mock_ui)
 
-            create_explorer_tab(mock_backend, Mock(), mock_preview_open)
+            create_explorer_tab(mock_backend, {'hit_counts': Counter()}, mock_preview_open)
 
     def _setup_mock_ui(self, mock_ui):
         """UIモックを設定する."""
@@ -186,3 +186,10 @@ class TestCreateExplorerTab:
         mock_ui.row.return_value = mock_context_manager
         mock_ui.tree.return_value = MagicMock()
         mock_ui.tree.return_value.add_slot = Mock()
+        
+        # refreshableデコレータをモック
+        def mock_refreshable(f):
+            f() # 初期実行をシミュレート
+            return f
+        mock_ui.refreshable = mock_refreshable
+        mock_ui.timer = Mock()

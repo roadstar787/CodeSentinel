@@ -17,9 +17,6 @@ def create_todo_tab(
         (todo_list_container, todo_stats_container)
 
     """
-    todo_stats_container = ui.row().classes('w-full gap-4 mb-4')
-    todo_list_container = ui.column().classes('w-full gap-2')
-
     # ソートオプションとフィルターを保持する変数
     sort_select: Any = None
     show_completed_toggle: Any = None
@@ -51,9 +48,10 @@ def create_todo_tab(
                             priority=priority_toggle.value,
                             due_date=due_date_input.value if due_date_input.value else None,
                         )
+                        # ステートを更新
+                        backend.stats['todos'] = todo_service.list_todos()
                     ui.notify('ToDoを更新しました')
                     dialog.close()
-                    _refresh_todo_list()
 
                 ui.button('更新', on_click=_save).props('unelevated color=indigo')
         dialog.open()
@@ -249,15 +247,17 @@ def create_todo_tab(
         todo_service = backend.get_todo_service() if backend else None
         if todo_service:
             todo_service.toggle_todo_completion(todo_id)
-        _refresh_todo_list()
+            # ステートを更新
+            backend.stats['todos'] = todo_service.list_todos()
 
     def _delete_todo(todo_id: str) -> None:
         """ToDoを削除."""
         todo_service = backend.get_todo_service() if backend else None
         if todo_service:
             todo_service.delete_todo(todo_id)
+            # ステートを更新
+            backend.stats['todos'] = todo_service.list_todos()
         ui.notify('ToDoを削除しました')
-        _refresh_todo_list()
 
     def _show_add_todo_dialog() -> None:
         """ToDo追加ダイアログを表示."""
@@ -286,14 +286,40 @@ def create_todo_tab(
                             priority=priority_toggle.value,
                             due_date=due_date_input.value if due_date_input.value else None,
                         )
+                        # ステートを更新
+                        backend.stats['todos'] = todo_service.list_todos()
                     ui.notify('ToDoを追加しました')
                     dialog.close()
-                    _refresh_todo_list()
 
                 ui.button('追加', on_click=_save).props('unelevated color=indigo')
         dialog.open()
 
+    # ToDoリストの表示コンテナ作成
+    todo_stats_container = ui.row().classes('w-full gap-4 mb-4')
+    todo_list_container = ui.column().classes('w-full gap-2')
+
+    @ui.refreshable
+    def render_todo_list():
+        _refresh_todo_list()
+
+    # ToDoリストの変更を監視する
+    last_todo_count = [len(backend.stats.get('todos', [])) if backend and hasattr(backend, 'stats') else 0]
+    last_todo_ids = [str([t.get('id') for t in backend.stats.get('todos', [])]) if backend and hasattr(backend, 'stats') else "[]"]
+
+    def check_todo_state():
+        if not backend: return
+        current_todos = backend.stats.get('todos', [])
+        current_count = len(current_todos)
+        current_ids = str([t.get('id') for t in current_todos])
+        
+        if current_count != last_todo_count[0] or current_ids != last_todo_ids[0]:
+            last_todo_count[0] = current_count
+            last_todo_ids[0] = current_ids
+            render_todo_list.refresh()
+
+    ui.timer(1.0, check_todo_state)
+
     # 初期表示
-    _refresh_todo_list()
+    render_todo_list()
 
     return todo_list_container, todo_stats_container

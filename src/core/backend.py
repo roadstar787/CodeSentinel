@@ -44,7 +44,8 @@ class RAGBackend:
             "lm_connected": False,
             "model": "N/A",
             "revision": "v0.4.0",
-            "last_rebuild": "Never"
+            "last_rebuild": "Never",
+            "todos": []                 # List[Dict[str, Any]]
         }
 
         # 再構築キャンセルフラグ

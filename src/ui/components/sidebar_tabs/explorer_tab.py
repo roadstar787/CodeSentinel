@@ -12,21 +12,29 @@ def create_explorer_tab(
     state: Dict[str, Any],
     preview_open: Optional[Callable] = None,
 ) -> ui.column:
-    """エクスプローラータブを作成する.
-
-    Args:
-        backend: RAGBackendインスタンス
-        state: 検索状態
-        preview_open: プレビュー表示コールバック
-
-    Returns:
-        エクスプローラータブのコンテナ
-
-    """
+    # ツリー表示用コンテナ
     tree_container = ui.column().classes('w-full gap-0')
 
-    # 初期化
-    _refresh_explorer(tree_container, backend, state, preview_open)
+    @ui.refreshable
+    def render_explorer():
+        _refresh_explorer(tree_container, backend, state, preview_open)
+
+    render_explorer()
+
+    # ヒット数や再構築状態を監視して再描画する
+    last_hits_sum = [sum(state.get('hit_counts', {}).values())]
+    last_rebuilding = [backend.stats.get('is_rebuilding', False) if backend else False]
+
+    def check_explorer_state():
+        current_hits_sum = sum(state.get('hit_counts', {}).values())
+        current_rebuilding = backend.stats.get('is_rebuilding', False) if backend else False
+        
+        if current_hits_sum != last_hits_sum[0] or current_rebuilding != last_rebuilding[0]:
+            last_hits_sum[0] = current_hits_sum
+            last_rebuilding[0] = current_rebuilding
+            render_explorer.refresh()
+    
+    ui.timer(1.0, check_explorer_state)
 
     return tree_container
 

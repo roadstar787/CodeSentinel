@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
 
 from nicegui import ui, app
@@ -159,7 +160,8 @@ async def _handle_query(
     loop = asyncio.get_event_loop()
     docs = await loop.run_in_executor(None, functools.partial(retriever.invoke, query))
     
-    state['hit_counts'] = [d.metadata['source'] for d in docs]
+    # 統計情報の更新 (List -> Counter)
+    state['hit_counts'] = Counter([d.metadata['source'] for d in docs])
     
     chat_service = backend.get_chat_service()
     unique_hits = chat_service.process_search_results(docs)
