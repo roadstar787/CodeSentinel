@@ -79,7 +79,7 @@ def create_chat_interface(
 
     with ui.column().classes('w-full h-full p-4 gap-4') as container:
         # チャットメッセージ表示エリア (Refreshable)
-        chat_results_container = ui.column().classes('w-full flex-grow overflow-y-auto gap-2 p-2 text-white')
+        chat_results_container = ui.column().classes('w-full flex-grow overflow-y-auto gap-2 p-2 text-white').props('id=chat-results-scroll-area')
         
         @ui.refreshable
         def render_messages():
@@ -101,29 +101,39 @@ def create_chat_interface(
                 last_history_len[0] = current_len
                 last_streaming_content[0] = current_streaming
                 render_messages.refresh()
-                
-                # 自動スクロールをスケジュール (再描画の直後、0.1s後に実行が確実)
-                ui.timer(0.1, lambda: ui.run_javascript(f'const el = document.getElementById("{chat_results_container.id}"); if (el) el.scrollTo({{top: el.scrollHeight, behavior: "smooth"}});'), once=True)
+                # 描画直後にスクロールを実行
+                ui.timer(0.1, _scroll_to_bottom, once=True)
         
+        def _scroll_to_bottom():
+            """チャットエリアを最下部までスクロールする."""
+            ui.run_javascript("const el = document.getElementById('chat-results-scroll-area'); if(el) el.scrollTop = el.scrollHeight;")
+
         # ストリーミング中は頻度を上げる (0.2s)、通常は1.0s
         ui.timer(0.2, check_history)
 
-        # 入力エリア
-        with ui.row().classes('w-full items-center gap-2'):
-            input_field = ui.input(placeholder='メッセージを入力...').classes('flex-grow')
+    # 固定フッターとしての入力エリア
+    with ui.footer().classes('bg-transparent p-0'):
+        with ui.row().classes('w-full max-w-4xl mx-auto p-4 bg-white border border-slate-300 items-end gap-2 shadow-lg rounded-t-xl'):
+            input_field = ui.textarea(placeholder='メッセージを入力...').classes('flex-grow text-sm').props('borderless autogrow')
             input_field.bind_enabled_from(backend.stats, 'is_chat_generating', backward=lambda x: not x)
             
+            # Enterで送信 (Shift+Enterは改行)
+            input_field.on('keydown.enter', lambda e: submit_query() if not e.args['shiftKey'] else None)
+
             # フォーム送信時の処理 (Async)
             async def submit_query():
+                if not input_field.value.strip() or backend.stats.get('is_chat_generating'):
+                    return
                 await _handle_query(session, input_field, chat_results_container, state, backend, preview_open)
 
-            send_button = ui.button('送信', icon='send', on_click=submit_query).props('unelevated color=indigo')
-            send_button.bind_enabled_from(backend.stats, 'is_chat_generating', backward=lambda x: not x)
-            
-            # 生成中スピナー
-            with ui.row().classes('items-center').bind_visibility_from(backend.stats, 'is_chat_generating'):
-                ui.spinner(size='sm').props('color=indigo')
-                ui.label('Thinking...').classes('text-xs text-indigo-400')
+            with ui.column().classes('items-center gap-1'):
+                # 生成中スピナー
+                with ui.row().classes('items-center').bind_visibility_from(backend.stats, 'is_chat_generating'):
+                    ui.spinner(size='sm').props('color=indigo')
+                    ui.label('Thinking...').classes('text-[10px] text-indigo-400')
+                
+                send_button = ui.button(icon='send', on_click=submit_query).props('flat round color=indigo-600')
+                send_button.bind_enabled_from(backend.stats, 'is_chat_generating', backward=lambda x: not x)
 
     return container
 
@@ -243,8 +253,11 @@ def _render_chat_history(
             if msg['role'] == 'user':
                 ui.label(f"Q: {msg['content']}").classes('text-indigo-300 font-bold text-sm bg-indigo-900/50 p-2 w-full border-l-4 border-indigo-400')
             else:
-                ui.markdown(msg['content']).classes('text-white text-sm p-4 w-full border-b border-slate-600')
-
+                # タグをマークダウン形式に変換して表示 (改行を確実に入れる)
+                display_content = msg['content'].replace("<gaps>", "\n\n```json\n").replace("</gaps>", "\n```\n\n")
+                display_content = display_content.replace("<json_data>", "\n\n```json\n").replace("</json_data>", "\n```\n\n")
+                ui.markdown(display_content).classes('text-white text-sm p-4 w-full border-b border-slate-600')
+                
                 # ソースファイルボタンを表示
                 if msg.get('sources'):
                     with ui.row().classes('gap-2 mt-1'):
@@ -274,7 +287,10 @@ def _render_chat_history(
         # ストリーミング中のコンテンツがあれば追加
         streaming_content = backend.stats.get('streaming_content', '') if backend else ''
         if streaming_content:
-            ui.markdown(streaming_content).classes('text-white text-sm p-4 w-full border-b border-slate-600 animate-pulse')
+            # ストリーミング中もタグを置換 (改行を確実に入れる)
+            display_streaming = streaming_content.replace("<gaps>", "\n\n```json\n").replace("</gaps>", "\n```\n\n")
+            display_streaming = display_streaming.replace("<json_data>", "\n\n```json\n").replace("</json_data>", "\n```\n\n")
+            ui.markdown(display_streaming).classes('text-white text-sm p-4 w-full border-b border-slate-600 animate-pulse')
 
 
 def _render_json_card(json_data: Any) -> None:

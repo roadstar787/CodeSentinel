@@ -1,5 +1,4 @@
-"""ステータスタブUIコンポーネント"""
-
+import psutil
 from typing import Any, Dict, Optional
 
 from nicegui import ui
@@ -24,8 +23,11 @@ def create_status_tab(
 
     _render_stats(stats_container, backend, labels)
 
-    # 定期更新タイマー
-    _start_status_update_timer(backend, labels)
+    # 定期更新タイマー (CPU, RAM, Status)
+    def update_stats():
+        _update_stats_ui(backend, labels)
+
+    ui.timer(3.0, update_stats)
 
     return stats_container
 
@@ -39,40 +41,55 @@ def _render_stats(
     if not backend:
         return
 
-    stats = backend.get_document_service().get_statistics()
     with container:
-        stats_labels['chunks'] = ui.label(
-            f'総チャンク数: {stats.get("total_chunks", 0)}'
-        ).classes('text-white')
-        stats_labels['vector'] = ui.label(
-            f'ベクトルストア: {"ロード済み" if stats.get("vector_store_loaded", False) else "未ロード"}'
-        ).classes('text-white')
-        stats_labels['lm'] = ui.label(
-            f'LM Studio: {"接続済み" if stats.get("lm_connected", False) else "未接続"}'
-        ).classes('text-white')
-        stats_labels['model'] = ui.label(
-            f'モデル: {stats.get("model", "N/A")}'
-        ).classes('text-white')
+        ui.label('SYSTEM STATUS').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
+        
+        # リビジョン
+        with ui.element('div').classes('status-item'):
+            ui.label('Revision').classes('status-label')
+            ui.label(backend.stats.get("revision", "v0.4.0")).classes('status-value text-indigo-400')
+        
+        # ベクトルDB状態
+        with ui.element('div').classes('status-item'):
+            ui.label('Vector DB').classes('status-label')
+            stats_labels['vector_store'] = ui.label('OFFLINE').classes('px-2 py-0.5 rounded text-[10px] font-bold')
+        
+        # チャンク数
+        with ui.element('div').classes('status-item'):
+            ui.label('Total Chunks').classes('status-label')
+            stats_labels['total_chunks'] = ui.label('0').classes('status-value transition-all')
+        
+        # 最終更新
+        with ui.element('div').classes('status-item'):
+            ui.label('Last Build').classes('status-label')
+            stats_labels['last_rebuild'] = ui.label('Never').classes('status-value')
 
+        ui.separator().classes('bg-slate-700 my-6 opacity-30')
+        
+        ui.label('SYSTEM LOAD').classes('text-[10px] font-bold text-indigo-400 mb-4 tracking-widest')
+        
+        # LM Studio
+        with ui.element('div').classes('status-item'):
+            ui.label('LM Studio').classes('status-label')
+            stats_labels['lm_status'] = ui.label('Checking...').classes('px-2 py-0.5 rounded text-[10px] font-bold')
+        
+        # モデル名
+        with ui.element('div').classes('status-item'):
+            ui.label('Active Model').classes('status-label')
+            stats_labels['lm_model'] = ui.label('N/A').classes('status-value truncate max-w-[120px]')
 
-def _start_status_update_timer(
-    backend: Any,
-    stats_labels: Dict[str, ui.label],
-) -> None:
-    """定期更新タイマーを開始."""
-    try:
-        async def update_status():
-            """ステータスを更新."""
-            try:
-                if backend:
-                    await backend.check_lm_studio()
-                    _update_stats_ui(backend, stats_labels)
-            except Exception:
-                pass
+        # CPU
+        with ui.element('div').classes('status-item'):
+            ui.label('CPU').classes('status-label')
+            stats_labels['cpu'] = ui.label('0%').classes('status-value')
+        
+        # RAM
+        with ui.element('div').classes('status-item'):
+            ui.label('RAM').classes('status-label')
+            stats_labels['ram'] = ui.label('0GB').classes('status-value')
 
-        ui.timer(3.0, update_status)
-    except RuntimeError:
-        pass
+    # 初回反映
+    _update_stats_ui(backend, stats_labels)
 
 
 def _update_stats_ui(
@@ -83,26 +100,37 @@ def _update_stats_ui(
     if not backend or not stats_labels:
         return
 
-    stats = backend.get_document_service().get_statistics()
-    if 'chunks' in stats_labels:
-        stats_labels['chunks'].set_text(f'総チャンク数: {stats.get("total_chunks", 0)}')
-    if 'vector' in stats_labels:
-        stats_labels['vector'].set_text(
-            f'ベクトルストア: {"ロード済み" if stats.get("vector_store_loaded", False) else "未ロード"}'
-        )
-    if 'lm' in stats_labels:
-        stats_labels['lm'].set_text(
-            f'LM Studio: {"接続済み" if stats.get("lm_connected", False) else "未接続"}'
-        )
-    if 'model' in stats_labels:
-        stats_labels['model'].set_text(f'モデル: {stats.get("model", "N/A")}')
+    # CPU & RAM (psutil)
+    cpu_usage = psutil.cpu_percent()
+    mem = psutil.virtual_memory()
+    ram_usage = f"{mem.used // (1024**3)}GB / {mem.total // (1024**3)}GB"
 
+    # stats
+    stats = backend.stats
+    
+    # UI反映
+    if 'cpu' in stats_labels:
+        stats_labels['cpu'].set_text(f"{cpu_usage}%")
+    if 'ram' in stats_labels:
+        stats_labels['ram'].set_text(ram_usage)
+    
+    # DB状態
+    is_loaded = backend.document_service.vector_store is not None if backend.document_service else False
+    if 'vector_store' in stats_labels:
+        stats_labels['vector_store'].set_text('ONLINE' if is_loaded else 'OFFLINE')
+        stats_labels['vector_store'].classes(replace='bg-green-900/40 text-green-400' if is_loaded else 'bg-red-900/40 text-red-400')
+    
+    if 'total_chunks' in stats_labels:
+        stats_labels['total_chunks'].set_text(str(stats.get("total_chunks", 0)))
+    
+    if 'last_rebuild' in stats_labels:
+        stats_labels['last_rebuild'].set_text(str(stats.get("last_rebuild", "Never")))
 
-async def _update_stats(
-    backend: Any,
-    stats_labels: Dict[str, ui.label],
-) -> None:
-    """統計情報を非同期更新（テスト用）."""
-    if backend:
-        await backend.check_lm_studio()
-        _update_stats_ui(backend, stats_labels)
+    # LM Studio
+    lm_connected = stats.get("lm_connected", False)
+    if 'lm_status' in stats_labels:
+        stats_labels['lm_status'].set_text('ONLINE' if lm_connected else 'OFFLINE')
+        stats_labels['lm_status'].classes(replace='bg-green-900/40 text-green-400' if lm_connected else 'bg-red-900/40 text-red-400')
+    
+    if 'lm_model' in stats_labels:
+        stats_labels['lm_model'].set_text(stats.get("model", "N/A"))

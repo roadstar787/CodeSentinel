@@ -12,6 +12,9 @@ from src.ui.components.header import create_header
 from src.ui.components.preview_dialog import create_preview_dialog
 
 
+from src.ui.styles import apply_global_styles
+
+
 async def main_page(backend: RAGBackend) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """メインページを作成する.
 
@@ -22,6 +25,8 @@ async def main_page(backend: RAGBackend) -> Tuple[Dict[str, Any], Dict[str, Any]
         (session, state)
 
     """
+    # グローバルスタイルを適用
+    apply_global_styles()
     # ユーザー設定からターゲットディレクトリをロード
     user_settings = backend.get_user_settings()
     backend.update_user_settings(app.storage.user.get('user_settings', user_settings))
