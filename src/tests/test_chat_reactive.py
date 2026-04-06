@@ -93,10 +93,7 @@ class TestChatReactive:
         await _generate_response_async(
             query="Hello",
             context="Context",
-            md=Mock(),           # 旧設計互換（削除予定）
-            source_row=Mock(),   # 旧設計互換（削除予定）
             session={"id": "id", "history": []},
-            chat_results=Mock(), # 旧設計互換（削除予定）
             backend=mock_backend,
             unique_hits=[]
         )

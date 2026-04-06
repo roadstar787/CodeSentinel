@@ -5,20 +5,6 @@ from typing import Any, Dict, List, Optional
 
 from nicegui import ui, app
 
-# チャットメッセージ表示エリアへの参照（グローバル）
-_chat_results_ref: Dict[str, Any] = {'container': None}
-
-
-def set_chat_results_ref(container: Any) -> None:
-    """チャット結果コンテナへの参照を設定."""
-    _chat_results_ref['container'] = container
-
-
-def get_chat_results_ref() -> Any:
-    """チャット結果コンテナへの参照を取得."""
-    return _chat_results_ref.get('container')
-
-
 def create_chat_history_tab(
     backend: Any,
     session: Dict[str, Any],

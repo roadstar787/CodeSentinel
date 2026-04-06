@@ -167,17 +167,14 @@ async def _handle_query(
 
     # 回答生成の実行
     await _generate_response_async(
-        query, context, None, None, session, chat_results, backend, unique_hits, preview_open
+        query, context, session, backend, unique_hits, preview_open
     )
 
 
 async def _generate_response_async(
     query: str,
     context: str,
-    md: Any,
-    source_row: Any,
     session: Dict[str, Any],
-    chat_results: Any,
     backend: RAGBackend,
     unique_hits: List[tuple],
     preview_open: Optional[Callable] = None,

@@ -14,13 +14,10 @@ from src.ui.components.sidebar_tabs import (
     create_status_tab,
 )
 from src.ui.components.sidebar_tabs.chat_history_tab import (
-    set_chat_results_ref,
     _render_chat_list,
     _start_new_chat,
 )
 
-# チャット結果コンテナへの参照
-_chat_results_ref: Dict[str, Any] = {'container': None}
 
 # グローバル状態：サイドバーのタブとパネルの参照を保持
 _sidebar_state: Dict[str, Any] = {
@@ -85,7 +82,6 @@ def create_sidebar(
     state: Optional[Dict[str, Any]] = None,
     on_tab_change: Optional[Callable] = None,
     preview_open: Optional[Callable] = None,
-    chat_results: Optional[ui.column] = None,
     on_tab_toggle: Optional[Callable[[bool], None]] = None,
 ) -> Tuple:
     """サイドバーを作成する.
@@ -96,16 +92,11 @@ def create_sidebar(
         state: 検索状態
         on_tab_change: タブ変更時のコールバック
         preview_open: プレビュー表示コールバック
-        chat_results: チャットメッセージ表示エリア
 
     Returns:
         (drawer, tabs, tab_exp, tab_cht, tab_tod, tab_set, tab_sts, tab_panels)
 
     """
-    # チャット結果コンテナを保存
-    if chat_results is not None:
-        _chat_results_ref['container'] = chat_results
-        set_chat_results_ref(chat_results)
 
     # 状態管理用
     if session is None:
